@@ -218,6 +218,45 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
       required: ["confirm"],
     },
   },
+  {
+    name: "web.open",
+    description: "Opens any URL in JARVIC's own controlled browser window (not the user's default browser).",
+    parameters: {
+      type: "object",
+      properties: { url: { type: "string" } },
+      required: ["url"],
+    },
+  },
+  {
+    name: "web.evaluate",
+    description: "Runs JavaScript in JARVIC's controlled media window and returns the result.",
+    parameters: {
+      type: "object",
+      properties: { script: { type: "string" } },
+      required: ["script"],
+    },
+  },
+  {
+    name: "web.click",
+    description: "Clicks the first element matching the given CSS selector in JARVIC's controlled media window.",
+    parameters: {
+      type: "object",
+      properties: { selector: { type: "string" } },
+      required: ["selector"],
+    },
+  },
+  {
+    name: "web.type",
+    description: "Types text into the first matching input or textarea element in JARVIC's controlled media window.",
+    parameters: {
+      type: "object",
+      properties: {
+        selector: { type: "string" },
+        text: { type: "string" },
+      },
+      required: ["selector", "text"],
+    },
+  },
 ];
 
 export function isDestructiveTool(name: string): boolean {

@@ -1,10 +1,12 @@
 import dotenv from "dotenv";
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow } from "electron";
 import path from "path";
 import http from "http";
 import { fork, ChildProcess } from "child_process";
 import { registerIpcHandlers } from "./ipc/handlers";
+import { openUrlInMediaWindow } from "./mediaWindow";
 import "./tools"; // side-effect: registers every tool module into the registry
+import "./tools/audio";
 
 dotenv.config();
 
@@ -122,9 +124,9 @@ async function createWindow() {
   });
 
   // Any attempt to open a new window (target=_blank, window.open) is handed
-  // to the OS default browser instead of spawning an unmanaged BrowserWindow.
+  // to JARVIC's own controlled BrowserWindow instead of the OS browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openUrlInMediaWindow(url).catch((err) => console.error("Failed to open URL in media window:", err));
     return { action: "deny" };
   });
 
@@ -132,7 +134,7 @@ async function createWindow() {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!url.startsWith(SERVER_URL)) {
       event.preventDefault();
-      shell.openExternal(url);
+      openUrlInMediaWindow(url).catch((err) => console.error("Failed to open URL in media window:", err));
     }
   });
 

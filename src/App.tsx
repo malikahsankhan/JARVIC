@@ -153,6 +153,8 @@ export default function App() {
   const workletNodeRef = useRef<any>(null);
   const [livePartial, setLivePartial] = useState<string | null>(null);
   const [desktopListening, setDesktopListening] = useState(false);
+  const desktopStreamRef = useRef<any>(null);
+  const desktopAudioIntervalRef = useRef<number | null>(null);
 
   // Uplink active state and sandbox detection
   const [activeUplink, setActiveUplink] = useState<{ name: string; url: string } | null>(null);
@@ -256,9 +258,10 @@ export default function App() {
         };
 
         rec.onresult = (event: any) => {
-          const results = Array.from(event.results || []);
-          const transcript = results.map((result: any) => result[0]?.transcript ?? "").join(" ").trim();
-          const finalResult = results[results.length - 1];
+          const results = Array.from(event.results || []) as ArrayLike<any>;
+          const list = Array.from(results as any[]);
+          const transcript = list.map((result: any) => result[0]?.transcript ?? "").join(" ").trim();
+          const finalResult = list[list.length - 1] as any;
 
           if (finalResult?.isFinal) {
             setLivePartial(null);
@@ -430,6 +433,20 @@ export default function App() {
     setLivePartial(null);
     setDesktopListening(false);
 
+    if (desktopAudioIntervalRef.current) {
+      window.clearInterval(desktopAudioIntervalRef.current);
+      desktopAudioIntervalRef.current = null;
+    }
+
+    if (desktopStreamRef.current) {
+      try {
+        desktopStreamRef.current.close?.();
+      } catch (err) {
+        console.warn('Could not stop desktop audio stream', err);
+      }
+      desktopStreamRef.current = null;
+    }
+
     try {
       recognitionRef.current?.stop?.();
     } catch (err) {
@@ -458,20 +475,33 @@ export default function App() {
   const startVoiceCapture = async () => {
     if (typeof window !== 'undefined' && (window as any).jarvic?.invokeTool) {
       try {
+        const result = await (window as any).jarvic.invokeTool('system.audio.listen', { mode: 'start' });
+        if (!result?.success) {
+          throw new Error(result?.error || 'Desktop audio capture failed.');
+        }
+
         setDesktopListening(true);
         setVoiceRecognitionActive(true);
         setJarvicState('listening');
-        addLog('>> [JARVIC] Switching to desktop microphone capture.');
+        addLog('>> [JARVIC] Desktop microphone capture active. Speak now, Sir.');
         playSound('beep');
         return;
       } catch (err: any) {
-        addLog(`>> [WARNING] Desktop capture setup failed: ${err?.message || err}`);
-        playSound('warning');
+        addLog(`>> [WARNING] Desktop capture unavailable. Falling back to browser speech recognition.`);
       }
     }
 
-    addLog('>> [WARNING] Desktop microphone capture is not available in this environment.');
-    playSound('warning');
+    if (recognitionRef.current) {
+      try {
+        shouldAutoRestartRef.current = true;
+        recognitionRef.current.start();
+        return;
+      } catch (err) {
+        addLog('>> [WARNING] Browser speech recognition could not start.');
+      }
+    }
+
+    addLog('>> [WARNING] Speech capture is not available in this environment.');
   };
 
   // Start AssemblyAI realtime transcription via WebSocket and AudioWorklet
