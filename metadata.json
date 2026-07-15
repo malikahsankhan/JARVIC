@@ -1,0 +1,6 @@
+{
+  "name": "JARVIC Computer Assistant",
+  "description": "An immersive, high-tech sci-fi terminal assistant featuring a dynamic pulsing core, console commands, interactive voice, system diagnostics, and an AI intelligence core.",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,51 @@
+appId: com.jarvic.assistant
+productName: JARVIC
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+  - node_modules/**/*
+  - "!node_modules/electron-builder/**/*"
+  - "!node_modules/@types/**/*"
+  - "!electron/**/*.ts"
+  - "!src/**/*"
+  - "!shared/**/*.ts"
+
+# electron-builder automatically prunes devDependencies out of the packaged
+# node_modules based on package.json, so express/@google/genai/dotenv (real
+# runtime deps of dist/server.cjs, which was built with --packages=external)
+# ship, while electron/electron-builder/typescript/etc do not.
+asarUnpack:
+  - node_modules/**
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # Drop a real .ico here (256x256, multi-size) before building a release.
+  # icon: build/icon.ico
+  requestedExecutionLevel: asInvoker
+  # Skips embedding version/icon resources into the .exe via rcedit, which
+  # otherwise requires Wine when building on Linux/macOS. Leave this as-is
+  # if you build on Windows itself; only needed for cross-platform builds.
+  signAndEditExecutable: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: JARVIC
+
+# extraResources can be used later for things like a bundled PowerShell
+# helper script, if the tool set grows beyond what dist-electron/main.js
+# spawns directly.
+extraResources: []
