@@ -21,7 +21,7 @@ export interface ToolManifestEntry {
 const KNOWN_APP_KEYS = [
   "notepad", "calculator", "paint", "explorer", "task-manager", "control-panel",
   "settings", "cmd", "powershell", "windows-terminal", "device-manager",
-  "registry-editor", "chrome", "edge", "vscode", "word", "excel", "powerpoint",
+  "registry-editor", "snipping-tool", "chrome", "edge", "vscode", "word", "excel", "powerpoint",
 ];
 
 const KNOWN_FOLDER_KEYS = ["home", "desktop", "documents", "downloads", "pictures", "videos"];
@@ -255,6 +255,55 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
         text: { type: "string" },
       },
       required: ["selector", "text"],
+    },
+  },
+  {
+    name: "system.takeScreenshot",
+    description: "Captures a full screenshot of the primary display and saves it as a PNG file.",
+    parameters: {
+      type: "object",
+      properties: { fileName: { type: "string", description: "Optional filename, defaults to a timestamped name." } },
+    },
+  },
+  {
+    name: "input.typeText",
+    description: "Types literal text into whatever window/field currently has focus.",
+    parameters: {
+      type: "object",
+      properties: { text: { type: "string" } },
+      required: ["text"],
+    },
+  },
+  {
+    name: "input.pressKey",
+    description: 'Presses a key or combo on the focused window, e.g. "enter", "ctrl+c", "alt+f4".',
+    parameters: {
+      type: "object",
+      properties: { combo: { type: "string" } },
+      required: ["combo"],
+    },
+  },
+  {
+    name: "input.mouseMove",
+    description: "Moves the mouse cursor to absolute screen coordinates.",
+    parameters: {
+      type: "object",
+      properties: { x: { type: "number" }, y: { type: "number" } },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "input.mouseClick",
+    description: "Moves the mouse to (x, y) and clicks (left or right, optionally double-click).",
+    parameters: {
+      type: "object",
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        button: { type: "string", enum: ["left", "right"] },
+        doubleClick: { type: "boolean" },
+      },
+      required: ["x", "y"],
     },
   },
 ];

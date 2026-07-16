@@ -33,6 +33,7 @@ const KNOWN_APPS: Record<string, AppSpec> = {
   "device-manager": { kind: "system-exe", exe: path.join(windir, "System32", "mmc.exe"), args: [path.join(windir, "System32", "devmgmt.msc")] },
   // Sensitive — only reachable via this explicit, named key, never a generic "run anything" path.
   "registry-editor": { kind: "system-exe", exe: path.join(windir, "regedit.exe") },
+  "snipping-tool": { kind: "protocol", uri: "ms-screenclip:" },
   chrome: {
     kind: "resolve-path",
     candidates: [

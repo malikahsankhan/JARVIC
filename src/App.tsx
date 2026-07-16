@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { motion } from "motion/react";
 import { Message, ThemeName, ThemeColors, Directive, SystemStatus, JarvicState, ToolCall, ToolCallResult } from "./types";
 import { isDestructiveTool } from "../shared/toolManifest";
 import CoreReactor from "./components/CoreReactor";
@@ -983,12 +984,12 @@ export default function App() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#020617] text-cyan-400 font-mono flex flex-col p-4 md:p-8 select-none overflow-x-hidden relative scanlines">
+    <div className="w-full min-h-screen bg-[#020617] text-cyan-400 font-mono flex flex-col p-4 md:p-6 lg:p-8 select-none overflow-x-hidden relative scanlines">
       {/* Holographic glowing grids */}
-      <div className="absolute inset-0 opacity-10 pointer-events-none grid-overlay"></div>
-      <div className="absolute inset-0 bg-gradient-to-t from-cyan-950/10 via-transparent to-transparent pointer-events-none"></div>
+      <div className="absolute inset-0 opacity-[0.07] pointer-events-none grid-overlay" />
+      <div className="absolute inset-0 bg-gradient-to-t from-cyan-950/10 via-transparent to-transparent pointer-events-none" />
 
-      {/* Main Container framed for high aesthetic alignment */}
+      {/* Main Container */}
       <div className="w-full max-w-7xl mx-auto flex-1 flex flex-col z-10">
         
         {/* Sandbox Iframe Breakout Warning Banner */}
@@ -1023,13 +1024,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Header Grid based on requested custom specs */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-cyan-900/50 pb-4 mb-6 gap-4">
+        {/* Header Grid */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-cyan-900/30 pb-4 mb-6 gap-4">
           <div className="flex flex-col">
-            <span className="text-[9px] md:text-[10px] tracking-[0.4em] text-cyan-600 block mb-1">INTELLIGENT COMPUTING ENVIRONMENT</span>
+            <span className="text-[9px] md:text-[10px] tracking-[0.4em] text-cyan-700 block mb-1.5 font-hud">INTELLIGENT COMPUTING ENVIRONMENT</span>
             <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tighter" style={{ textShadow: `0 0 12px ${theme.primaryHex}60` }}>
-                JARVIC <span className="text-cyan-700 font-normal">v4.2.0</span>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tighter font-display metallic-text">
+                JARVIC <span className="text-cyan-700/60 font-normal text-lg md:text-xl">v4.2.0</span>
               </h1>
               {/* Dynamic Theme color indicator */}
               <div className="flex gap-1 items-center pb-1">
@@ -1060,7 +1061,7 @@ export default function App() {
                 OPTIMAL
               </span>
             </div>
-            <span className="opacity-60 mt-1 tracking-wider uppercase text-[10px] md:text-[11px]">
+            <span className="opacity-50 mt-1 tracking-wider uppercase text-[10px] md:text-[11px] font-hud">
               {timeStr || "09 JUL 2026 | UTC"}
             </span>
           </div>
@@ -1070,22 +1071,19 @@ export default function App() {
         <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
           
           {/* LEFT WIDGET COLUMN (span 3) */}
-          <div className="lg:col-span-3 flex flex-col gap-6">
+          <div className="lg:col-span-3 flex flex-col gap-5">
             
             {/* Diagnostics Stats card */}
-            <div className="bg-slate-950/60 border border-slate-800/80 p-5 rounded-xl shadow-lg relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-12 h-12 pointer-events-none opacity-10">
-                <Cpu className="w-full h-full text-cyan-400" />
-              </div>
-              <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-4 flex items-center justify-between">
+            <div className="glass-panel rounded-xl p-5 relative overflow-hidden corner-brackets">
+              <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-4 flex items-center justify-between font-hud">
                 <span>Hardware Metrics</span>
                 <button 
                   onClick={fetchDiagnostics} 
                   disabled={loadingDiagnostics}
-                  className="hover:text-cyan-400 transition-colors cursor-pointer"
+                  className="hover:text-cyan-400 transition-colors cursor-pointer group"
                   title="Query Telemetry Now"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loadingDiagnostics ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingDiagnostics ? 'animate-spin' : 'group-hover:rotate-180'} transition-transform duration-500`} />
                 </button>
               </h2>
               
@@ -1093,62 +1091,69 @@ export default function App() {
                 {/* Neural core cpu usage simulation */}
                 <div>
                   <div className="flex justify-between text-[11px] mb-1.5 text-slate-300">
-                    <span>NEURAL CORE</span>
-                    <span>{diagnostics ? "14%" : "12%"}</span>
+                    <span className="tracking-wider">NEURAL CORE</span>
+                    <span className="font-semibold">{diagnostics ? "14%" : "12%"}</span>
                   </div>
-                  <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                    <div className="h-full bg-cyan-500 transition-all duration-1000" style={{ width: diagnostics ? "14%" : "12%", backgroundColor: theme.primaryHex }} />
+                  <div className="h-1.5 bg-slate-900/80 rounded-full overflow-hidden border border-slate-800/50">
+                    <motion.div 
+                      className="h-full rounded-full"
+                      style={{ backgroundColor: theme.primaryHex }}
+                      animate={{ width: diagnostics ? "14%" : "12%" }}
+                      transition={{ duration: 1 }}
+                    />
                   </div>
                 </div>
 
                 {/* Simulated/Real synaptics memory usage */}
                 <div>
                   <div className="flex justify-between text-[11px] mb-1.5 text-slate-300">
-                    <span>SYNAPTIC RAM</span>
-                    <span>
+                    <span className="tracking-wider">SYNAPTIC RAM</span>
+                    <span className="font-semibold">
                       {diagnostics 
                         ? `${(diagnostics.memory.processUsed / (1024*1024)).toFixed(1)} MB` 
                         : "4.2 TB / 16 TB"}
                     </span>
                   </div>
-                  <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                    <div className="h-full bg-cyan-500 transition-all duration-1000" style={{ width: diagnostics ? "35%" : "26%", backgroundColor: theme.primaryHex }} />
+                  <div className="h-1.5 bg-slate-900/80 rounded-full overflow-hidden border border-slate-800/50">
+                    <motion.div 
+                      className="h-full rounded-full"
+                      style={{ backgroundColor: theme.primaryHex }}
+                      animate={{ width: diagnostics ? "35%" : "26%" }}
+                      transition={{ duration: 1 }}
+                    />
                   </div>
                 </div>
 
                 {/* Thermal stats */}
                 <div>
                   <div className="flex justify-between text-[11px] mb-1.5 text-slate-300">
-                    <span>THERMAL PSI</span>
-                    <span className="text-emerald-400">32°C</span>
+                    <span className="tracking-wider">THERMAL PSI</span>
+                    <span className="text-emerald-400 font-semibold">32°C</span>
                   </div>
-                  <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                    <div className="h-full bg-emerald-500 w-[32%]" />
+                  <div className="h-1.5 bg-slate-900/80 rounded-full overflow-hidden border border-slate-800/50">
+                    <div className="h-full bg-emerald-500 w-[32%] rounded-full" />
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Directives / Active protocols card */}
-            <div className="bg-slate-950/60 border border-slate-800/80 p-5 rounded-xl shadow-lg flex-1 flex flex-col justify-between relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none opacity-5">
-                <Database className="w-full h-full text-cyan-400" />
-              </div>
+            <div className="glass-panel rounded-xl p-5 flex-1 flex flex-col justify-between relative overflow-hidden corner-brackets">
               <div>
-                <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-4 flex justify-between items-center">
-                  <span>ACTIVE DIRECTIVES</span>
+                <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-4 flex justify-between items-center font-hud">
+                  <span>Active Directives</span>
                   <span className="text-slate-500 font-mono text-[9px]">{directives.length} RUNNING</span>
                 </h2>
                 
                 {/* Scrollable list of active protocols */}
-                <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 terminal-scroll">
                   {directives.length === 0 ? (
                     <p className="text-xs text-slate-500 italic py-2">No custom system directives registered, Sir.</p>
                   ) : (
                     directives.map((d) => (
                       <div 
                         key={d.id} 
-                        className="group flex items-start justify-between gap-2 p-2 bg-slate-900/40 rounded border border-slate-800/50 hover:border-slate-700/50 transition-all"
+                        className="group flex items-start justify-between gap-2 p-2 bg-slate-900/30 rounded border border-slate-800/40 hover:border-slate-700/40 transition-all"
                       >
                         <div className="flex gap-2">
                           <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: theme.primaryHex, boxShadow: `0 0 6px ${theme.primaryHex}` }} />
@@ -1168,21 +1173,23 @@ export default function App() {
               </div>
 
               {/* Add Custom Directive visual input form */}
-              <form onSubmit={handleAddDirective} className="mt-4 pt-4 border-t border-slate-900 flex gap-2">
+              <form onSubmit={handleAddDirective} className="mt-4 pt-4 border-t border-slate-800/50 flex gap-2">
                 <input
                   type="text"
                   placeholder="New core directive..."
                   value={newDirectiveText}
                   onChange={(e) => setNewDirectiveText(e.target.value)}
-                  className="flex-1 bg-slate-900/60 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                  className="flex-1 bg-slate-900/60 border border-slate-800/50 rounded px-2.5 py-1.5 text-[11px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-500/60 focus:shadow-[0_0_10px_rgba(6,182,212,0.1)] transition-all"
                 />
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   type="submit"
-                  className="p-1 rounded bg-cyan-950/60 hover:bg-cyan-900/50 border border-cyan-800 text-cyan-400 transition-all cursor-pointer flex items-center justify-center"
+                  className="p-1.5 rounded bg-cyan-950/60 hover:bg-cyan-900/50 border border-cyan-800/50 text-cyan-400 transition-all cursor-pointer flex items-center justify-center hover:shadow-[0_0_10px_rgba(6,182,212,0.2)]"
                   title="Inject Protocol"
                 >
                   <Plus className="w-4 h-4" />
-                </button>
+                </motion.button>
               </form>
             </div>
 
@@ -1194,14 +1201,14 @@ export default function App() {
             <div className="flex-1 flex flex-col items-center justify-center relative p-4 min-h-[380px]">
               {/* Glowing Interactive Uplink Bridge for sandboxed environments */}
               {activeUplink && (
-                <div className="absolute inset-0 bg-slate-950/95 border border-cyan-500/50 rounded-2xl p-6 flex flex-col items-center justify-center z-40 backdrop-blur-md">
+                <div className="absolute inset-0 bg-slate-950/95 border border-cyan-500/50 rounded-2xl p-6 flex flex-col items-center justify-center z-40 backdrop-blur-md corner-brackets">
                   <div className="w-16 h-16 rounded-full bg-cyan-950/60 border border-cyan-500 flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(6,182,212,0.4)] relative">
                     <Scan className="w-8 h-8 text-cyan-400 animate-pulse" />
                     <div className="absolute inset-0 border border-cyan-400/30 rounded-full animate-ping" />
                   </div>
                   
-                  <span className="text-[10px] tracking-[0.3em] text-cyan-500 font-mono mb-2 uppercase">Uplink Telemetry Detected</span>
-                  <h3 className="text-sm font-semibold text-white font-mono text-center mb-3">
+                  <span className="text-[10px] tracking-[0.3em] text-cyan-500 font-mono mb-2 uppercase font-hud">Uplink Telemetry Detected</span>
+                  <h3 className="text-sm font-semibold text-white font-mono text-center mb-3 tracking-wider">
                     BRIDGE PATH: <span className="text-cyan-400">{activeUplink.name.toUpperCase()}</span>
                   </h3>
                   
@@ -1210,7 +1217,9 @@ export default function App() {
                   </p>
 
                   <div className="flex gap-4 w-full justify-center">
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         playSound("success");
                         window.open(activeUplink.url, "_blank");
@@ -1220,8 +1229,10 @@ export default function App() {
                     >
                       <Play className="w-3.5 h-3.5" />
                       <span>Establish Uplink</span>
-                    </button>
-                    <button
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         playSound("click");
                         setActiveUplink(null);
@@ -1229,17 +1240,16 @@ export default function App() {
                       className="px-4 py-2.5 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 font-mono text-xs rounded-lg transition-all cursor-pointer"
                     >
                       Dismiss
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
               )}
 
               {isCameraActive ? (
-                <div className="w-full h-full max-w-md flex flex-col items-center justify-center bg-slate-950/80 border border-red-500/30 rounded-2xl p-4 shadow-[0_0_25px_rgba(239,68,68,0.15)] relative overflow-hidden">
+                <div className="w-full h-full max-w-md flex flex-col items-center justify-center bg-slate-950/80 border border-red-500/30 rounded-2xl p-4 shadow-[0_0_25px_rgba(239,68,68,0.15)] relative overflow-hidden corner-brackets">
                   {/* Blinking recording/active state dot */}
                   <div className="absolute top-4 left-4 flex items-center gap-2 z-10 font-mono text-[10px] text-red-500 bg-black/60 px-2 py-1 rounded-md border border-red-900/50">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                    <span className="w-2 h-2 rounded-full bg-red-500 absolute left-[6px]" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping absolute left-[6px]" />
                     <span>LENS ACTIVE // FEED ONLINE</span>
                   </div>
 
@@ -1278,13 +1288,15 @@ export default function App() {
                   </div>
 
                   <div className="mt-4 flex gap-3 z-10">
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={stopCamera}
                       className="px-4 py-2 bg-red-950/40 border border-red-500/50 hover:bg-red-900/30 text-red-400 font-mono text-[10px] tracking-widest rounded-lg flex items-center gap-2 cursor-pointer transition-all shadow-[0_0_10px_rgba(239,68,68,0.1)]"
                     >
                       <VideoOff className="w-3.5 h-3.5" />
                       <span>POWER DOWN OPTICS</span>
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
               ) : (
@@ -1295,32 +1307,36 @@ export default function App() {
                     themeHex={theme.primaryHex}
                     onClick={toggleVoiceCapture}
                   />
-                  <button
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                     onClick={startCamera}
                     className="mt-6 px-4 py-2 bg-cyan-950/30 border border-cyan-800/80 hover:bg-cyan-900/30 hover:border-cyan-500 text-cyan-400 font-mono text-[10px] tracking-widest rounded-lg flex items-center gap-2 cursor-pointer transition-all shadow-[0_0_15px_rgba(6,182,212,0.1)]"
                   >
                     <Video className="w-3.5 h-3.5" />
                     <span>DEPLOY OPTICAL LENS</span>
-                  </button>
+                  </motion.button>
                 </div>
               )}
             </div>
             
             {/* Audio waveform / signal control helper bar */}
-            <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="glass-panel rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-900 border border-slate-800">
-                  <Volume2 className="w-5 h-5 text-cyan-500" />
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-900/60 border border-slate-800/60">
+                  <Volume2 className="w-5 h-5" style={{ color: theme.primaryHex }} />
                 </div>
                 <div>
-                  <h4 className="text-[11px] uppercase tracking-wider text-slate-400">Audio Synth Matrix</h4>
+                  <h4 className="text-[11px] uppercase tracking-wider text-slate-400 font-hud">Audio Synth Matrix</h4>
                   <p className="text-[10px] text-slate-500">British Voice synthesis enabled.</p>
                 </div>
               </div>
 
               {/* Control triggers */}
               <div className="flex items-center gap-3">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => {
                     setIsMuted(!isMuted);
                     playSound("click");
@@ -1328,51 +1344,57 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 cursor-pointer transition-all ${
                     isMuted 
                       ? 'border-red-900/80 bg-red-950/20 text-red-400' 
-                      : 'border-slate-800 hover:border-slate-700 text-slate-300'
+                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300'
                   }`}
                 >
                   {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                   <span>{isMuted ? "MUTED" : "UNMUTED"}</span>
-                </button>
+                </motion.button>
 
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={toggleVoiceCapture}
                   className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 cursor-pointer transition-all ${
                     voiceRecognitionActive
                       ? 'border-amber-500 bg-amber-950/30 text-amber-400 animate-pulse'
-                      : 'border-slate-800 hover:border-slate-700 text-slate-300'
+                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300'
                   }`}
                 >
                   {voiceRecognitionActive ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                   <span>{voiceRecognitionActive ? "LISTENING" : "CAPTURE VOICE"}</span>
-                </button>
+                </motion.button>
 
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={greetUser}
-                  className="px-3 py-1.5 border border-cyan-800/80 bg-cyan-950/20 hover:bg-cyan-900/20 text-cyan-400 rounded text-[10px] font-mono tracking-widest flex items-center gap-1.5 cursor-pointer transition-all"
+                  className="px-3 py-1.5 border border-cyan-800/80 bg-cyan-950/20 hover:bg-cyan-900/20 text-cyan-400 rounded text-[10px] font-mono tracking-widest flex items-center gap-1.5 cursor-pointer transition-all hover:shadow-[0_0_10px_rgba(6,182,212,0.15)]"
                   title="Trigger welcome greeting synthesize"
                 >
                   <Play className="w-3 h-3 fill-current" />
                   <span>TEST SPEECH</span>
-                </button>
+                </motion.button>
               </div>
             </div>
-          </div>
+           </div>
 
-          {/* RIGHT WIDGET COLUMN (span 3) */}
-          <div className="lg:col-span-3 flex flex-col gap-6">
-            
+           {/* RIGHT WIDGET COLUMN (span 3) */}
+          <div className="lg:col-span-3 flex flex-col gap-5">
+             
             {/* Advanced Sub-System Controller (Apps, Files, and Telemetry tabs) */}
-            <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl shadow-lg relative overflow-hidden flex-1 flex flex-col justify-between min-h-[380px]">
-              
+            <div className="glass-panel rounded-xl p-4 relative overflow-hidden flex-1 flex flex-col justify-between min-h-[380px] corner-brackets">
+               
               {/* Card Header & cybernetic selector buttons */}
               <div>
-                <div className="flex items-center justify-between border-b border-slate-900 pb-2.5 mb-3.5">
-                  <h2 className="text-[10px] uppercase tracking-widest text-cyan-500 font-mono font-semibold">Sub-System Grid</h2>
+                <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5 mb-3.5">
+                  <h2 className="text-[10px] uppercase tracking-widest text-cyan-500 font-mono font-semibold font-hud">Sub-System Grid</h2>
                   <div className="flex gap-1 bg-slate-900/60 p-0.5 rounded border border-slate-800/50">
                     {(["apps", "env"] as const).map((tab) => (
-                      <button
+                      <motion.button
                         key={tab}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => {
                           setRightPanelTab(tab);
                           playSound("click");
@@ -1384,7 +1406,7 @@ export default function App() {
                         }`}
                       >
                         {tab}
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
                 </div>
@@ -1397,21 +1419,25 @@ export default function App() {
                     </p>
                     
                     <div className="grid grid-cols-2 gap-2">
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("beep");
                           setActiveUplink({ name: "Netflix Stream", url: "https://netflix.com" });
                           addLog(">> [JARVIC] Staging entertainment uplink stream to Netflix.");
                           speakVoice("Netflix stream linkage staged, Sir.");
                         }}
-                        className="p-2 bg-slate-900/40 border border-slate-800/80 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
+                        className="p-2 bg-slate-900/30 border border-slate-800/60 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <AppWindow className="w-5 h-5 text-cyan-500 mb-1 group-hover:text-cyan-400 group-hover:scale-105 transition-all" />
                         <span className="text-[10px] font-mono text-slate-300 group-hover:text-cyan-300">Netflix</span>
                         <span className="text-[8px] font-mono text-slate-500 mt-0.5">ENTERTAINMENT</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           if (isCameraActive) {
                             stopCamera();
@@ -1419,43 +1445,49 @@ export default function App() {
                             startCamera();
                           }
                         }}
-                        className="p-2 bg-slate-900/40 border border-slate-800/80 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
+                        className="p-2 bg-slate-900/30 border border-slate-800/60 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <Video className={`w-5 h-5 mb-1 group-hover:scale-105 transition-all ${isCameraActive ? 'text-red-500 animate-pulse' : 'text-cyan-500'}`} />
                         <span className="text-[10px] font-mono text-slate-300 group-hover:text-cyan-300">Optical Lens</span>
                         <span className={`text-[8px] font-mono mt-0.5 ${isCameraActive ? 'text-red-400 font-semibold' : 'text-slate-500'}`}>
                           {isCameraActive ? 'ONLINE' : 'OFFLINE'}
                         </span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("click");
                           addLog(">> [JARVIC] To search YouTube, speak: \"search youtube for [your query]\" or type \"youtube [query]\" in the terminal.");
                           speakVoice("Sir, speak search youtube followed by your query, or enter it directly in the console.");
                         }}
-                        className="p-2 bg-slate-900/40 border border-slate-800/80 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
+                        className="p-2 bg-slate-900/30 border border-slate-800/60 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <Search className="w-5 h-5 text-cyan-500 mb-1 group-hover:text-cyan-400 group-hover:scale-105 transition-all" />
                         <span className="text-[10px] font-mono text-slate-300 group-hover:text-cyan-300">YouTube search</span>
                         <span className="text-[8px] font-mono text-slate-500 mt-0.5">AURAL / COMMAND</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("beep");
                           setActiveUplink({ name: "ChatGPT Portal", url: "https://chatgpt.com" });
                           addLog(">> [JARVIC] Staging secure manual uplink to OpenAI ChatGPT portal.");
                           speakVoice("ChatGPT uplink staged, Sir.");
                         }}
-                        className="p-2 bg-slate-900/40 border border-slate-800/80 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
+                        className="p-2 bg-slate-900/30 border border-slate-800/60 hover:border-cyan-500/40 hover:bg-cyan-950/10 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <AppWindow className="w-5 h-5 text-cyan-500 mb-1 group-hover:text-cyan-400 group-hover:scale-105 transition-all" />
                         <span className="text-[10px] font-mono text-slate-300 group-hover:text-cyan-300">ChatGPT Core</span>
                         <span className="text-[8px] font-mono text-slate-500 mt-0.5">EXTERNAL CORE</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("beep");
                           setActiveUplink({ name: "Google Mainframe", url: "https://google.com" });
@@ -1464,9 +1496,11 @@ export default function App() {
                         className="p-1.5 bg-slate-900/30 border border-slate-800/50 hover:border-cyan-500/30 hover:bg-cyan-950/5 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <span className="text-[9px] font-mono text-slate-400 group-hover:text-cyan-300">Google Link</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("beep");
                           setActiveUplink({ name: "Gmail Server", url: "https://mail.google.com" });
@@ -1475,9 +1509,11 @@ export default function App() {
                         className="p-1.5 bg-slate-900/30 border border-slate-800/50 hover:border-cyan-500/30 hover:bg-cyan-950/5 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <span className="text-[9px] font-mono text-slate-400 group-hover:text-cyan-300">Gmail Communications</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("beep");
                           setActiveUplink({ name: "GitHub Source", url: "https://github.com" });
@@ -1485,9 +1521,11 @@ export default function App() {
                         className="p-1.5 bg-slate-900/30 border border-slate-800/50 hover:border-cyan-500/30 hover:bg-cyan-950/5 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <span className="text-[9px] font-mono text-slate-400 group-hover:text-cyan-300">GitHub Portal</span>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={() => {
                           playSound("click");
                           fetchDiagnostics();
@@ -1495,7 +1533,7 @@ export default function App() {
                         className="p-1.5 bg-slate-900/30 border border-slate-800/50 hover:border-cyan-500/30 hover:bg-cyan-950/5 rounded flex flex-col items-center justify-center text-center transition-all group cursor-pointer"
                       >
                         <span className="text-[9px] font-mono text-slate-400 group-hover:text-cyan-300">PC Diagnostics</span>
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                 )}
@@ -1504,7 +1542,7 @@ export default function App() {
                 {rightPanelTab === "env" && (
                   <div className="space-y-4 font-mono animate-fade-in">
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest">LOCATION</span>
+                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-hud">Location</span>
                       <span className="text-xs text-slate-200 font-medium flex items-center gap-1.5 mt-0.5">
                         <MapPin className="w-3.5 h-3.5 text-cyan-500" />
                         NEW YORK, USA
@@ -1512,7 +1550,7 @@ export default function App() {
                     </div>
                     
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest">UPLINK CONNECT</span>
+                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-hud">Uplink Connect</span>
                       <span className="text-xs text-slate-200 font-medium flex items-center gap-1.5 mt-0.5">
                         <Wifi className="w-3.5 h-3.5 text-cyan-500" />
                         STARK_TOWER_5G_SECURE
@@ -1520,7 +1558,7 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest">HOST SYSTEM</span>
+                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-hud">Host System</span>
                       <span className="text-xs text-slate-200 font-medium flex items-center gap-1.5 mt-0.5">
                         <Settings className="w-3.5 h-3.5 text-cyan-500" />
                         {diagnostics ? `${diagnostics.platform.toUpperCase()} (${diagnostics.arch})` : "LINUX CORE 64BIT"}
@@ -1528,7 +1566,7 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest">ENGINE RUNTIME</span>
+                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-hud">Engine Runtime</span>
                       <span className="text-xs text-slate-200 font-medium flex items-center gap-1.5 mt-0.5">
                         <FolderOpen className="w-3.5 h-3.5 text-cyan-500" />
                         {diagnostics ? `${diagnostics.nodeVersion}` : "NODEJS v22.14"}
@@ -1539,21 +1577,21 @@ export default function App() {
               </div>
 
               {/* Holographic HUD aesthetic details */}
-              <div className="mt-4 pt-4 border-t border-slate-900/60">
+              <div className="mt-4 pt-4 border-t border-slate-800/60">
                 <div className="flex justify-between items-center text-[10px] text-slate-500">
-                  <span>CRYPTO NET</span>
-                  <span className="text-emerald-500 font-semibold">SECURED</span>
+                  <span className="tracking-wider">CRYPTO NET</span>
+                  <span className="text-emerald-500 font-semibold tracking-wider">SECURED</span>
                 </div>
-                <div className="mt-2 h-1 bg-slate-900 rounded-full overflow-hidden">
-                  <div className="h-full bg-cyan-400 w-3/4 animate-pulse" style={{ backgroundColor: theme.primaryHex }} />
+                <div className="mt-2 h-1 bg-slate-900/80 rounded-full overflow-hidden border border-slate-800/50">
+                  <div className="h-full bg-cyan-400 w-3/4 animate-pulse rounded-full" style={{ backgroundColor: theme.primaryHex }} />
                 </div>
               </div>
             </div>
 
             {/* Quick calibration settings controls */}
-            <div className="bg-slate-950/60 border border-slate-800/80 p-5 rounded-xl shadow-lg">
-              <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-3">Recent Logs</h2>
-              <div className="text-[10px] text-cyan-400/70 leading-relaxed space-y-2 max-h-[140px] overflow-y-auto pr-1">
+            <div className="glass-panel rounded-xl p-5">
+              <h2 className="text-[10px] uppercase tracking-widest text-cyan-600 mb-3 font-hud">Recent Logs</h2>
+              <div className="text-[10px] text-cyan-400/70 leading-relaxed space-y-2 max-h-[140px] overflow-y-auto pr-1 terminal-scroll">
                 <p>&gt;<span className="text-slate-500"> [03:19]</span> System calibration complete.</p>
                 <p>&gt;<span className="text-slate-500"> [03:18]</span> Core energy reserves at 100%.</p>
                 <p>&gt;<span className="text-slate-500"> [03:17]</span> Speech synth module aligned.</p>
@@ -1580,7 +1618,7 @@ export default function App() {
         </div>
 
         {/* Aesthetic credit rail */}
-        <footer className="mt-4 py-2 text-center text-[9px] font-mono text-slate-600 tracking-[0.2em] uppercase">
+        <footer className="mt-4 py-2 text-center text-[9px] font-mono text-slate-600 tracking-[0.2em] uppercase font-hud">
           JARVIC MAIN SYSTEM ENVIRONMENT // DESIGNED FOR THE SECTOR ELEVEN PLATFORM // ALL SUBSYSTEMS STABLE
         </footer>
 

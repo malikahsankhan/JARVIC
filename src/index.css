@@ -1,40 +1,190 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;1,400&family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;1,400&family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=Orbitron:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
+  --font-hud: "Orbitron", sans-serif;
 }
 
 @layer utilities {
-  /* CRT Scanline Effect */
+  /* Cinematic CRT Scanline Effect */
   .scanlines {
     position: relative;
     overflow: hidden;
   }
   .scanlines::before {
-    content: " ";
+    content: "";
     display: block;
     position: absolute;
     top: 0; left: 0; bottom: 0; right: 0;
-    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    background: linear-gradient(
+      rgba(18, 16, 16, 0) 50%, 
+      rgba(0, 0, 0, 0.25) 50%
+    ), linear-gradient(
+      90deg, 
+      rgba(255, 0, 0, 0.04), 
+      rgba(0, 255, 0, 0.01), 
+      rgba(0, 0, 255, 0.04)
+    );
     z-index: 20;
-    background-size: 100% 4px, 6px 100%;
+    background-size: 100% 3px, 4px 100%;
     pointer-events: none;
   }
 
-  /* Holographic grid overlay */
+  /* Animated holographic grid overlay */
   .grid-overlay {
-    background-size: 30px 30px;
+    background-size: 40px 40px;
     background-image: 
-      linear-gradient(to right, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(6, 182, 212, 0.05) 1px, transparent 1px);
+      linear-gradient(to right, rgba(6, 182, 212, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(6, 182, 212, 0.04) 1px, transparent 1px);
+  }
+
+  /* Holographic shimmer effect */
+  .holographic {
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.1) 0%,
+      rgba(168, 85, 247, 0.05) 50%,
+      rgba(6, 182, 212, 0.1) 100%
+    );
+    animation: hologram-shift 8s ease-in-out infinite;
+  }
+
+  .holographic-border {
+    position: relative;
+  }
+  .holographic-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(6, 182, 212, 0.5),
+      rgba(168, 85, 247, 0.3),
+      rgba(6, 182, 212, 0.5)
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: border-shift 4s linear infinite;
+  }
+
+  /* Corner bracket decorations */
+  .corner-brackets {
+    position: relative;
+  }
+  .corner-brackets::before,
+  .corner-brackets::after {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: rgba(6, 182, 212, 0.6);
+    border-style: solid;
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+  .corner-brackets::before {
+    top: 0;
+    left: 0;
+    border-width: 1px 0 0 1px;
+  }
+  .corner-brackets::after {
+    bottom: 0;
+    right: 0;
+    border-width: 0 1px 1px 0;
+  }
+
+  /* Glass morphism panel */
+  .glass-panel {
+    background: rgba(2, 6, 23, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(6, 182, 212, 0.15);
+    box-shadow: 
+      0 0 30px rgba(6, 182, 212, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Metallic gradient text */
+  .metallic-text {
+    background: linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #22d3ee 50%,
+      #0891b2 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Animated data flow lines */
+  .data-flow {
+    position: relative;
+    overflow: hidden;
+  }
+  .data-flow::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(6, 182, 212, 0.1),
+      transparent
+    );
+    animation: data-flow 3s ease-in-out infinite;
+  }
+
+  /* HUD pulse ring */
+  .hud-pulse-ring {
+    animation: hud-pulse 2s ease-out infinite;
+  }
+
+  /* Scanning laser effect */
+  .scan-laser {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(6, 182, 212, 0.8),
+      transparent
+    );
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+    animation: scan-down 4s linear infinite;
+    pointer-events: none;
+  }
+
+  /* Chromatic aberration for holograms */
+  .chromatic-aberration {
+    text-shadow: 
+      2px 0 0 rgba(255, 0, 0, 0.3),
+      -2px 0 0 rgba(0, 255, 255, 0.3);
   }
 
   /* Blinking sci-fi caret */
   .caret-blink {
     animation: caret-pulse 1s infinite step-end;
+  }
+
+  /* Terminal input glow */
+  .terminal-glow {
+    box-shadow: 
+      0 0 5px rgba(6, 182, 212, 0.1),
+      inset 0 0 5px rgba(6, 182, 212, 0.05);
   }
 }
 
@@ -43,7 +193,6 @@
   50% { background-color: currentColor; }
 }
 
-/* Custom rotational animations for HUD rings */
 @keyframes spin-slow {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -64,6 +213,62 @@
   100% { transform: translateY(100%); }
 }
 
+@keyframes hologram-shift {
+  0%, 100% { 
+    background-position: 0% 0%;
+    opacity: 0.6;
+  }
+  50% { 
+    background-position: 100% 100%;
+    opacity: 0.8;
+  }
+}
+
+@keyframes border-shift {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes data-flow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes hud-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes scan-down {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+@keyframes float-up {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-20px) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes glitch {
+  0%, 100% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+}
+
 .animate-spin-slow {
   animation: spin-slow 12s linear infinite;
 }
@@ -80,18 +285,60 @@
   animation: scan-line 4s linear infinite;
 }
 
+.animate-hologram {
+  animation: hologram-shift 8s ease-in-out infinite;
+}
+
+.animate-border-shift {
+  animation: border-shift 4s linear infinite;
+}
+
+.animate-hud-pulse {
+  animation: hud-pulse 2s ease-out infinite;
+}
+
+.animate-scan-down {
+  animation: scan-down 4s linear infinite;
+}
+
+.animate-float {
+  animation: float-up 3s ease-out infinite;
+}
+
+.animate-glitch {
+  animation: glitch 0.3s ease-in-out;
+}
+
 /* Custom scrollbars for the terminal */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(10, 15, 25, 0.3);
+  background: rgba(10, 15, 25, 0.2);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(6, 182, 212, 0.3);
-  border-radius: 3px;
+  background: rgba(6, 182, 212, 0.25);
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.5);
+  background: rgba(6, 182, 212, 0.4);
+}
+
+/* Terminal-specific scrollbar */
+.terminal-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.terminal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-scroll::-webkit-scrollbar-thumb {
+  background: rgba(6, 182, 212, 0.3);
+  border-radius: 2px;
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(6, 182, 212, 0.3);
+  color: #fff;
 }
