@@ -119,6 +119,19 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     },
   },
   {
+    name: "files.writeAndOpenInNotepad",
+    description:
+      "Writes text to a file AND opens it in Notepad, already saved, in one call. ALWAYS prefer this over apps.open + input.typeText + Ctrl+S for 'write X and save it' / 'open notepad and type X' requests — it's far more reliable.",
+    parameters: {
+      type: "object",
+      properties: {
+        content: { type: "string" },
+        path: { type: "string", description: "Optional; defaults to a timestamped file in Documents." },
+      },
+      required: ["content"],
+    },
+  },
+  {
     name: "files.append",
     description: "Appends text to the end of a file, creating it if needed.",
     parameters: {
@@ -162,6 +175,15 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     description: "Forcefully terminates a process by PID.",
     destructive: true,
     parameters: { type: "object", properties: { pid: { type: "number" } }, required: ["pid"] },
+  },
+  {
+    name: "system.wait",
+    description:
+      "Pauses briefly (max 5000ms) before your next tool call. Use after apps.open, right before typing/clicking into the newly opened window.",
+    parameters: {
+      type: "object",
+      properties: { ms: { type: "number", description: "Milliseconds to wait, capped at 5000." } },
+    },
   },
   {
     name: "system.usage",
@@ -219,6 +241,25 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     },
   },
   {
+    name: "web.googleSearch",
+    description: "Opens Google search results for a query in JARVIC's controlled window.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+  {
+    name: "web.googleImageSearch",
+    description:
+      "Opens Google's Images tab for a query in JARVIC's controlled window. Use this for 'search X and show images' / 'in the images section' requests.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+  {
     name: "web.open",
     description: "Opens any URL in JARVIC's own controlled browser window (not the user's default browser).",
     parameters: {
@@ -234,6 +275,27 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
       type: "object",
       properties: { script: { type: "string" } },
       required: ["script"],
+    },
+  },
+  {
+    name: "web.scroll",
+    description: "Scrolls the page in JARVIC's controlled media window up or down.",
+    parameters: {
+      type: "object",
+      properties: {
+        direction: { type: "string", enum: ["up", "down"] },
+        amount: { type: "number", description: "Pixels to scroll, default 600." },
+      },
+    },
+  },
+  {
+    name: "web.clickByText",
+    description:
+      "Clicks the first visible button/link whose text matches (partial, case-insensitive), e.g. 'Sign In', 'Accept all', 'Skip'. Prefer this over web.click for real websites, since you can't see their CSS selectors.",
+    parameters: {
+      type: "object",
+      properties: { text: { type: "string" } },
+      required: ["text"],
     },
   },
   {
@@ -258,8 +320,19 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     },
   },
   {
+    name: "web.youtubePlaySong",
+    description:
+      "One-call action for 'play X on YouTube' requests: searches, clicks the first result, and tries to auto-skip a pre-roll ad. ALWAYS use this single tool for play/song requests instead of chaining web.open + web.click yourself.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Song or video to search for and play." } },
+      required: ["query"],
+    },
+  },
+  {
     name: "system.takeScreenshot",
-    description: "Captures a full screenshot of the primary display and saves it as a PNG file.",
+    description:
+      "Captures a full screenshot/screen-capture image of the display and saves it as a PNG file. ONLY use this when the user explicitly asks to take/save a screenshot or capture the screen. Never use this in response to a request to type, write, or enter text.",
     parameters: {
       type: "object",
       properties: { fileName: { type: "string", description: "Optional filename, defaults to a timestamped name." } },
@@ -267,7 +340,8 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "input.typeText",
-    description: "Types literal text into whatever window/field currently has focus.",
+    description:
+      "Types/writes literal text into whatever window or input field currently has keyboard focus. Use this whenever the user asks you to type, write, or enter text somewhere — e.g. 'type X in notepad', 'write hello world'. This is the ONLY tool for fulfilling typing requests; it is unrelated to screenshots.",
     parameters: {
       type: "object",
       properties: { text: { type: "string" } },

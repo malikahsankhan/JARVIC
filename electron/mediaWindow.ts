@@ -104,3 +104,112 @@ export async function typeIntoMediaWindow(selector: string, text: string): Promi
     title: window.webContents.getTitle(),
   };
 }
+
+export async function scrollMediaWindow(direction: "up" | "down", amount: number): Promise<MediaWindowInteractionResult> {
+  const window = getOrCreateMediaWindow();
+  const delta = direction === "down" ? amount : -amount;
+  await window.webContents.executeJavaScript(`window.scrollBy({ top: ${delta}, behavior: "smooth" });`, true);
+  return {
+    matched: true,
+    url: window.webContents.getURL(),
+    title: window.webContents.getTitle(),
+  };
+}
+
+/**
+ * Clicks the first visible, clickable element (button, link, or role=button)
+ * whose text content includes the given string (case-insensitive). This lets
+ * the model click things by what they SAY on screen ("Sign In", "Accept all",
+ * "Skip") rather than having to guess a CSS selector for a page it has never
+ * inspected.
+ */
+export async function clickByTextInMediaWindow(text: string): Promise<MediaWindowInteractionResult> {
+  const window = getOrCreateMediaWindow();
+  const matched = await window.webContents.executeJavaScript(
+    `(function () {
+      const needle = ${JSON.stringify(text)}.toLowerCase().trim();
+      const candidates = Array.from(document.querySelectorAll(
+        'button, a, [role="button"], input[type="submit"], input[type="button"], summary'
+      ));
+      const isVisible = (el) => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+      };
+      const getLabel = (el) => (el.innerText || el.value || el.getAttribute("aria-label") || "").toLowerCase().trim();
+      const match = candidates.find((el) => isVisible(el) && getLabel(el).includes(needle));
+      if (!match) return false;
+      match.scrollIntoView({ block: "center" });
+      match.click();
+      return true;
+    })();`,
+    true
+  );
+
+  return {
+    matched: Boolean(matched),
+    url: window.webContents.getURL(),
+    title: window.webContents.getTitle(),
+  };
+}
+
+export interface PlayYoutubeSongResult {
+  searchUrl: string;
+  clicked: boolean;
+  adSkipped: boolean;
+}
+
+/**
+ * One-shot "play a song on YouTube": searches, waits for and clicks the
+ * first result, then polls for a skippable pre-roll ad and clicks Skip if
+ * one appears. Not every ad is skippable (some are forced) — adSkipped:false
+ * in that case is expected, not a failure.
+ */
+export async function playYoutubeSong(query: string): Promise<PlayYoutubeSongResult> {
+  const window = getOrCreateMediaWindow();
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+  await window.loadURL(searchUrl);
+  window.show();
+  window.focus();
+
+  const clicked: boolean = await window.webContents.executeJavaScript(
+    `(async function () {
+      function findResult() {
+        return document.querySelector('ytd-video-renderer a#video-title, a#video-title, ytd-video-renderer a#thumbnail');
+      }
+      const start = Date.now();
+      let el = null;
+      while (Date.now() - start < 8000) {
+        el = findResult();
+        if (el) break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      if (!el) return false;
+      el.click();
+      return true;
+    })();`,
+    true
+  );
+
+  if (!clicked) {
+    return { searchUrl, clicked: false, adSkipped: false };
+  }
+
+  const adSkipped: boolean = await window.webContents.executeJavaScript(
+    `(async function () {
+      function findSkipButton() {
+        return document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, button.ytp-ad-skip-button-container');
+      }
+      const start = Date.now();
+      while (Date.now() - start < 12000) {
+        const btn = findSkipButton();
+        if (btn) { btn.click(); return true; }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return false;
+    })();`,
+    true
+  );
+
+  return { searchUrl, clicked: true, adSkipped };
+}

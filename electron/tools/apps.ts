@@ -97,12 +97,20 @@ registerTool({
     }
     return { key };
   },
-  handler: ({ key }: { key: string }) => {
+  handler: async ({ key }: { key: string }) => {
     assertWindows("apps.open");
     const spec = KNOWN_APPS[key];
 
+    // Give the OS time to actually create and focus the window before this
+    // tool call returns "success" — without this, a typing tool called
+    // right after apps.open can land keystrokes nowhere (or in the wrong
+    // window), because launchDetached() only guarantees the process started,
+    // not that its window exists and has focus yet.
+    const WINDOW_APPEAR_DELAY_MS = 1200;
+
     if (spec.kind === "protocol") {
       launchDetached(path.join(windir, "System32", "cmd.exe"), ["/c", "start", "", spec.uri]);
+      await new Promise((resolve) => setTimeout(resolve, WINDOW_APPEAR_DELAY_MS));
       return { opened: key, message: `Opened ${key}.` };
     }
 
@@ -111,6 +119,7 @@ registerTool({
       throw new Error(`Could not locate an installation of "${key}" on this machine.`);
     }
     launchDetached(exePath, spec.args ?? []);
+    await new Promise((resolve) => setTimeout(resolve, WINDOW_APPEAR_DELAY_MS));
     return { opened: key, path: exePath, message: `Opened ${key}.` };
   },
 });

@@ -41,6 +41,34 @@ registerTool({
 });
 
 registerTool({
+  name: "files.writeAndOpenInNotepad",
+  description:
+    "Writes text content to a file AND opens it directly in Notepad, already saved with that content — in a single call. Use this instead of apps.open + input.typeText + Ctrl+S whenever the user wants to 'write X and save it' or 'open notepad and type X' — it is far more reliable since it writes the file directly rather than simulating keystrokes and a Save dialog. If no path is given, saves to a default 'JARVIC Notes' file in Documents.",
+  validateArgs: (raw) => {
+    const content = str(raw, "content");
+    const providedPath = typeof raw === "object" && raw !== null && typeof (raw as any).path === "string" ? (raw as any).path : undefined;
+    const target = providedPath
+      ? path.resolve(providedPath)
+      : path.join(os.homedir(), "Documents", `JARVIC Note ${Date.now()}.txt`);
+    return { target, content };
+  },
+  handler: async ({ target, content }: { target: string; content: string }) => {
+    const windir = process.env["WINDIR"] || "C:\\Windows";
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, content, "utf-8");
+
+    const { spawn } = await import("child_process");
+    const child = spawn(path.join(windir, "System32", "notepad.exe"), [target], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    return { path: target, bytesWritten: Buffer.byteLength(content, "utf-8"), openedInNotepad: true };
+  },
+});
+
+registerTool({
   name: "files.append",
   description: "Appends text to the end of a file, creating it if it doesn't exist.",
   validateArgs: (raw) => ({ target: path.resolve(str(raw, "path")), content: str(raw, "content") }),
