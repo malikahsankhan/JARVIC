@@ -45,7 +45,14 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: JARVIC
 
-# extraResources can be used later for things like a bundled PowerShell
-# helper script, if the tool set grows beyond what dist-electron/main.js
-# spawns directly.
-extraResources: []
+# whisper.cpp binary + model — needed for local/offline speech-to-text.
+# Only the CLI exe, its required DLLs, and the model are shipped — not the
+# original zip, test files, or the many unrelated tools bundled alongside it
+# (bench.exe, parakeet*, command.exe, etc).
+extraResources:
+  - from: whisper
+    to: whisper
+    filter:
+      - "ggml-tiny.en.bin"
+      - "Release/whisper-cli.exe"
+      - "Release/*.dll"

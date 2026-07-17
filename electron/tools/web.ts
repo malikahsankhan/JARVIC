@@ -21,8 +21,21 @@ async function getPage(): Promise<PwPage> {
   if (!browser) {
     // Dynamic require keeps esbuild from bundling Playwright
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { chromium } = require("playwright") as any;
-    browser = await chromium.launch({ headless: false });
+    let chromium: any;
+    try {
+      ({ chromium } = require("playwright") as any);
+    } catch (err: any) {
+      throw new Error(
+        `Playwright is not installed (${err.message}). Run: npm install, then npx playwright install chromium`
+      );
+    }
+    try {
+      browser = await chromium.launch({ headless: false });
+    } catch (err: any) {
+      throw new Error(
+        `Playwright's Chromium browser isn't installed yet (${err.message}). Run: npx playwright install chromium`
+      );
+    }
   }
   const contexts = browser!.contexts();
   const ctx = contexts.length ? contexts[0] : await browser!.newContext();

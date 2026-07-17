@@ -152,6 +152,10 @@ export default function App() {
   const assemblyWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<any>(null);
+  const whisperChunksRef = useRef<ArrayBuffer[]>([]);
+  const whisperAudioCtxRef = useRef<AudioContext | null>(null);
+  const whisperNodeRef = useRef<{ node: AudioWorkletNode; stream: MediaStream } | null>(null);
+  const activeVoiceMethodRef = useRef<"whisper" | "assemblyai" | "browser" | null>(null);
   const [livePartial, setLivePartial] = useState<string | null>(null);
   const [desktopListening, setDesktopListening] = useState(false);
   const desktopStreamRef = useRef<any>(null);
@@ -434,26 +438,10 @@ export default function App() {
     setLivePartial(null);
     setDesktopListening(false);
 
-    if (typeof window !== 'undefined' && (window as any).jarvic?.invokeTool) {
-      try {
-        await (window as any).jarvic.invokeTool('system.audio.listen', { mode: 'stop' });
-      } catch (err) {
-        console.warn('Could not stop desktop audio capture', err);
-      }
-    }
-
-    if (desktopAudioIntervalRef.current) {
-      window.clearInterval(desktopAudioIntervalRef.current);
-      desktopAudioIntervalRef.current = null;
-    }
-
-    if (desktopStreamRef.current) {
-      try {
-        desktopStreamRef.current.close?.();
-      } catch (err) {
-        console.warn('Could not stop desktop audio stream', err);
-      }
-      desktopStreamRef.current = null;
+    if (activeVoiceMethodRef.current === "whisper") {
+      await stopWhisperCaptureAndTranscribe();
+      activeVoiceMethodRef.current = null;
+      return;
     }
 
     try {
@@ -463,6 +451,7 @@ export default function App() {
     }
 
     await stopRealtimeTranscription();
+    activeVoiceMethodRef.current = null;
   };
 
   // Toggle voice capture (speech recognition)
@@ -482,28 +471,31 @@ export default function App() {
   };
 
   const startVoiceCapture = async () => {
-    if (typeof window !== 'undefined' && (window as any).jarvic?.invokeTool) {
-      try {
-        const result = await (window as any).jarvic.invokeTool('system.audio.listen', { mode: 'start' });
-        if (!result?.success) {
-          throw new Error(result?.error || 'Desktop audio capture failed.');
-        }
-
-        setDesktopListening(true);
-        setVoiceRecognitionActive(true);
-        setJarvicState('listening');
-        addLog('>> [JARVIC] Desktop microphone capture active. Speak now, Sir.');
-        playSound('beep');
-        return;
-      } catch (err: any) {
-        addLog(`>> [WARNING] Desktop capture unavailable. Falling back to browser speech recognition.`);
-      }
+    // Primary path: whisper.cpp — fully local/offline, no API key, no rate limits.
+    try {
+      await startWhisperCapture();
+      activeVoiceMethodRef.current = "whisper";
+      return;
+    } catch (err: any) {
+      addLog(`>> [WARNING] Local whisper.cpp capture unavailable: ${err?.message ?? err}`);
     }
 
+    // Fallback 1: AssemblyAI real-time transcription via WebSocket + AudioWorklet.
+    try {
+      await startRealtimeTranscription();
+      activeVoiceMethodRef.current = "assemblyai";
+      return;
+    } catch (err: any) {
+      addLog(`>> [WARNING] Real-time transcription unavailable: ${err?.message ?? err}`);
+    }
+
+    // Fallback 2: browser SpeechRecognition — usually fails inside Electron's
+    // Chromium (no built-in speech backend like real Chrome has), but cheap to try.
     if (recognitionRef.current) {
       try {
         shouldAutoRestartRef.current = true;
         recognitionRef.current.start();
+        activeVoiceMethodRef.current = "browser";
         return;
       } catch (err) {
         addLog('>> [WARNING] Browser speech recognition could not start.');
@@ -511,6 +503,124 @@ export default function App() {
     }
 
     addLog('>> [WARNING] Speech capture is not available in this environment.');
+  };
+
+  /** Encodes raw 16-bit PCM samples (mono) into a playable/readable WAV Blob. */
+  const encodeWavFromPcm16 = (pcmData: Uint8Array, sampleRate: number): Blob => {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+    const blockAlign = (numChannels * bitsPerSample) / 8;
+    const dataSize = pcmData.length;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(36, "data");
+    view.setUint32(40, dataSize, true);
+    new Uint8Array(buffer, 44).set(pcmData);
+
+    return new Blob([buffer], { type: "audio/wav" });
+  };
+
+  /** Starts capturing mic audio as 16kHz mono PCM16 (reusing the same worklet AssemblyAI uses), buffered in memory for whisper.cpp. */
+  const startWhisperCapture = async () => {
+    whisperChunksRef.current = [];
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audioCtx = new AudioContext();
+    whisperAudioCtxRef.current = audioCtx;
+
+    const workletUrl = new URL('./audio/assemblyai-worklet.js', import.meta.url).toString();
+    await audioCtx.audioWorklet.addModule(workletUrl);
+
+    const source = audioCtx.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(audioCtx, 'recorder-processor');
+    whisperNodeRef.current = { node, stream };
+
+    node.port.onmessage = (event: any) => {
+      whisperChunksRef.current.push(event.data);
+    };
+
+    source.connect(node).connect(audioCtx.destination);
+
+    setVoiceRecognitionActive(true);
+    setJarvicState('listening');
+    addLog('>> [JARVIC] Local whisper.cpp capture active. Speak now, Sir.');
+    playSound('beep');
+  };
+
+  /** Stops whisper.cpp capture, builds a WAV from the buffered PCM16, and sends it to the local transcription endpoint. */
+  const stopWhisperCaptureAndTranscribe = async () => {
+    if (whisperNodeRef.current) {
+      const { node, stream } = whisperNodeRef.current;
+      try { node.disconnect(); } catch {}
+      stream.getTracks().forEach((t) => t.stop());
+      whisperNodeRef.current = null;
+    }
+    if (whisperAudioCtxRef.current) {
+      try { await whisperAudioCtxRef.current.close(); } catch {}
+      whisperAudioCtxRef.current = null;
+    }
+
+    setVoiceRecognitionActive(false);
+    setJarvicState('thinking');
+    addLog('>> [JARVIC] Processing local transcription...');
+
+    const totalLength = whisperChunksRef.current.reduce((sum, b) => sum + b.byteLength, 0);
+    const pcmData = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of whisperChunksRef.current) {
+      pcmData.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+    whisperChunksRef.current = [];
+
+    if (totalLength === 0) {
+      addLog('>> [WARNING] No audio captured.');
+      setJarvicState('idle');
+      playSound('warning');
+      return;
+    }
+
+    const wavBlob = encodeWavFromPcm16(pcmData, 16000);
+
+    try {
+      const res = await fetch('/api/transcribe-whisper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wavBlob,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Whisper transcription failed.');
+
+      const text = (data.text || '').trim();
+      if (!text) {
+        addLog('>> [WARNING] No speech detected.');
+        setJarvicState('idle');
+        playSound('warning');
+        return;
+      }
+      addLog(`>> User (Aural): "${text}"`);
+      handleSendMessage(text);
+    } catch (err: any) {
+      addLog(`>> [WARNING] Whisper transcription error: ${err.message}`);
+      setJarvicState('idle');
+      playSound('warning');
+    }
   };
 
   // Start AssemblyAI realtime transcription via WebSocket and AudioWorklet
@@ -533,36 +643,39 @@ export default function App() {
       setJarvicState('listening');
       playSound('beep');
 
-      // Start audio capture and worklet
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioCtx = new AudioContext();
-      audioContextRef.current = audioCtx;
-
-      // Load worklet module
       try {
+        // Start audio capture and worklet
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioCtx = new AudioContext();
+        audioContextRef.current = audioCtx;
+
         const workletUrl = new URL('./audio/assemblyai-worklet.js', import.meta.url).toString();
         await audioCtx.audioWorklet.addModule(workletUrl);
-      } catch (err) {
-        console.warn('AudioWorklet load failed, falling back to ScriptProcessor', err);
-        throw err;
-      }
 
-      const source = audioCtx.createMediaStreamSource(stream);
-      const node = new AudioWorkletNode(audioCtx, 'recorder-processor');
-      workletNodeRef.current = { node, stream };
+        const source = audioCtx.createMediaStreamSource(stream);
+        const node = new AudioWorkletNode(audioCtx, 'recorder-processor');
+        workletNodeRef.current = { node, stream };
 
-      node.port.onmessage = (event: any) => {
-        // event.data is an ArrayBuffer (PCM16)
-        try {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(event.data);
+        node.port.onmessage = (event: any) => {
+          // event.data is an ArrayBuffer (PCM16)
+          try {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(event.data);
+            }
+          } catch (e) {
+            console.error('WebSocket send error', e);
           }
-        } catch (e) {
-          console.error('WebSocket send error', e);
-        }
-      };
+        };
 
-      source.connect(node).connect(audioCtx.destination);
+        source.connect(node).connect(audioCtx.destination);
+      } catch (err: any) {
+        console.error('Mic/AudioWorklet setup failed', err);
+        addLog(`>> [ERROR] Could not start microphone capture: ${err?.message ?? err}`);
+        playSound('warning');
+        setVoiceRecognitionActive(false);
+        setJarvicState('idle');
+        try { ws.close(); } catch {}
+      }
     };
 
     ws.onmessage = (ev) => {

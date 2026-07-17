@@ -30,6 +30,7 @@ function startBundledServer(): void {
   serverProcess = fork(serverEntry, [], {
     env: {
       ...process.env,
+      WHISPER_DIR: path.join(process.resourcesPath, "whisper"),
       NODE_ENV: "production",
     },
     silent: true,

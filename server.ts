@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import os from "os";
 import fs from "fs";
+import { execFile } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -13,6 +14,62 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// ---------------------------------------------------------------------------
+// Local, offline speech-to-text via whisper.cpp (no API key, no rate limits).
+// Client sends a raw 16kHz mono 16-bit WAV file; we shell out to the bundled
+// whisper-cli.exe and read back its .txt output.
+// ---------------------------------------------------------------------------
+const WHISPER_DIR = process.env.WHISPER_DIR || path.join(process.cwd(), "whisper");
+const WHISPER_CLI = path.join(WHISPER_DIR, "Release", "whisper-cli.exe");
+const WHISPER_MODEL = path.join(WHISPER_DIR, "ggml-tiny.en.bin");
+
+app.post("/api/transcribe-whisper", express.raw({ type: "*/*", limit: "20mb" }), async (req, res) => {
+  if (!fs.existsSync(WHISPER_CLI)) {
+    return res.status(500).json({
+      error: `whisper-cli.exe not found at ${WHISPER_CLI}. Unzip whisper-blas-bin-x64.zip inside the whisper/ folder first (so whisper/Release/whisper-cli.exe exists).`,
+    });
+  }
+  if (!fs.existsSync(WHISPER_MODEL)) {
+    return res.status(500).json({ error: `Whisper model not found at ${WHISPER_MODEL}.` });
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ error: "No audio data received." });
+  }
+
+  const tmpBase = path.join(os.tmpdir(), `jarvic-whisper-${Date.now()}-${Math.round(Math.random() * 1e6)}`);
+  const wavPath = `${tmpBase}.wav`;
+  const outBase = `${tmpBase}-out`;
+  const txtPath = `${outBase}.txt`;
+
+  try {
+    fs.writeFileSync(wavPath, req.body);
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        WHISPER_CLI,
+        ["-m", WHISPER_MODEL, "-f", wavPath, "-nt", "-otxt", "-of", outBase],
+        { timeout: 30_000, windowsHide: true },
+        (err, _stdout, stderr) => {
+          if (err) {
+            reject(new Error(stderr?.toString().trim() || err.message));
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+
+    const text = fs.existsSync(txtPath) ? fs.readFileSync(txtPath, "utf-8").trim() : "";
+    res.json({ text });
+  } catch (err: any) {
+    console.error("Whisper transcription error:", err);
+    res.status(500).json({ error: err?.message ?? "Whisper transcription failed." });
+  } finally {
+    try { fs.unlinkSync(wavPath); } catch {}
+    try { fs.unlinkSync(txtPath); } catch {}
+  }
+});
 
 // Initialize Gemini client safely if API key is present
 const apiKey = process.env.GEMINI_API_KEY;
