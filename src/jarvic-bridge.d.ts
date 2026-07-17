@@ -13,6 +13,10 @@ export interface JarvicBridge {
   versions: { node: string; chrome: string; electron: string };
   invokeTool: (name: string, args?: unknown) => Promise<JarvicToolResult>;
   onAudioEvent?: (callback: (data: { event: string; data?: any }) => void) => () => void;
+  /** Receive events forwarded from the floating mini-widget. */
+  onMiniEvent?: (callback: (data: { action: string; payload?: unknown }) => void) => () => void;
+  /** Push current JARVIC state to the floating mini-widget. */
+  notifyMiniWidget?: (state: string, transcript?: string) => void;
 }
 
 declare global {

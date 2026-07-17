@@ -12,6 +12,10 @@ export interface JarvicBridge {
   /** Open a URL in the system's default browser (bypasses popup blocking). */
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
   onAudioEvent: (callback: (data: { event: string; data?: any }) => void) => () => void;
+  /** Receive events forwarded from the floating mini-widget. */
+  onMiniEvent: (callback: (data: { action: string; payload?: unknown }) => void) => () => void;
+  /** Push current JARVIC state to the floating mini-widget. */
+  notifyMiniWidget: (state: string, transcript?: string) => void;
 }
 
 declare global {

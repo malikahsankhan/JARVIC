@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;" />
+  <title>JARVIC Mini</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap');
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .widget {
+      width: 360px;
+      height: 52px;
+      background: rgba(8, 12, 24, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      box-shadow:
+        0 0 20px rgba(6, 182, 212, 0.08),
+        0 4px 24px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      position: relative;
+    }
+
+    /* Scanline overlay */
+    .widget::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 14px;
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%,
+        rgba(0, 0, 0, 0.12) 50%
+      );
+      background-size: 100% 2px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Draggable area (everything except interactive elements) */
+    .drag-area {
+      -webkit-app-region: drag;
+      flex: 1;
+      height: 100%;
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* Status indicator dot */
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+      transition: all 0.3s ease;
+      z-index: 2;
+      flex-shrink: 0;
+      margin-left: 4px;
+    }
+    .status-dot.listening {
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+      animation: pulse-dot 1.2s ease-in-out infinite;
+    }
+    .status-dot.thinking {
+      background: #a855f7;
+      box-shadow: 0 0 8px #a855f7;
+      animation: pulse-dot 0.6s ease-in-out infinite;
+    }
+    .status-dot.speaking {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse-dot 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.5); opacity: 0.6; }
+    }
+
+    /* JARVIC label */
+    .jarvic-label {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: rgba(6, 182, 212, 0.5);
+      text-transform: uppercase;
+      z-index: 2;
+      flex-shrink: 0;
+      writing-mode: vertical-lr;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Mic button */
+    .mic-btn {
+      -webkit-app-region: no-drag;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      background: rgba(6, 182, 212, 0.06);
+      color: #22d3ee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      z-index: 2;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .mic-btn:hover {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: rgba(6, 182, 212, 0.5);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.2);
+    }
+    .mic-btn.active {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: #f59e0b;
+      color: #f59e0b;
+      animation: mic-pulse 1.2s ease-in-out infinite;
+    }
+    .mic-btn.active::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      animation: mic-ring 1.2s ease-out infinite;
+    }
+
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.2); }
+      50% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.4); }
+    }
+    @keyframes mic-ring {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(1.5); opacity: 0; }
+    }
+
+    .mic-btn svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    /* Transcript / text input area */
+    .input-area {
+      -webkit-app-region: no-drag;
+      flex: 1;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      z-index: 2;
+      min-width: 0;
+    }
+
+    .transcript-display {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 11px;
+      color: rgba(6, 182, 212, 0.7);
+      letter-spacing: 0.03em;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .transcript-display.has-text {
+      color: #22d3ee;
+    }
+
+    .text-input {
+      width: 100%;
+      height: 100%;
+      background: rgba(6, 182, 212, 0.04);
+      border: 1px solid rgba(6, 182, 212, 0.12);
+      border-radius: 8px;
+      padding: 0 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #e2e8f0;
+      outline: none;
+      letter-spacing: 0.03em;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .text-input::placeholder {
+      color: rgba(6, 182, 212, 0.25);
+    }
+    .text-input:focus {
+      border-color: rgba(6, 182, 212, 0.4);
+      box-shadow: 0 0 8px rgba(6, 182, 12, 0.1);
+    }
+
+    /* Send button */
+    .send-btn {
+      -webkit-app-region: no-drag;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid rgba(6, 182, 212, 0.2);
+      background: rgba(6, 182, 212, 0.06);
+      color: #22d3ee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      z-index: 2;
+      flex-shrink: 0;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+    .send-btn.enabled {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .send-btn.enabled:hover {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: rgba(6, 182, 212, 0.5);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+    }
+    .send-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    /* Restore / expand button */
+    .restore-btn {
+      -webkit-app-region: no-drag;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: rgba(6, 182, 212, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      z-index: 2;
+      flex-shrink: 0;
+    }
+    .restore-btn:hover {
+      color: #22d3ee;
+      background: rgba(6, 182, 212, 0.1);
+    }
+    .restore-btn svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+  </style>
+</head>
+<body>
+  <div class="widget" id="widget">
+    <div class="drag-area"></div>
+
+    <div class="status-dot" id="statusDot"></div>
+    <span class="jarvic-label">J.A.R.V.I.C</span>
+
+    <!-- Mic Button -->
+    <button class="mic-btn" id="micBtn" title="Toggle voice capture">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+      </svg>
+    </button>
+
+    <!-- Input area: shows transcript when listening, text input otherwise -->
+    <div class="input-area" id="inputArea">
+      <input
+        type="text"
+        class="text-input"
+        id="textInput"
+        placeholder="Speak or type a command..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+
+    <!-- Send button -->
+    <button class="send-btn" id="sendBtn" title="Send message">
+      <svg viewBox="0 0 24 24">
+        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+      </svg>
+    </button>
+
+    <!-- Restore main window -->
+    <button class="restore-btn" id="restoreBtn" title="Restore JARVIC window">
+      <svg viewBox="0 0 24 24">
+        <polyline points="15 3 21 3 21 9"/>
+        <path d="M21 3l-7 7"/>
+        <path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/>
+      </svg>
+    </button>
+  </div>
+
+  <script>
+    const micBtn = document.getElementById('micBtn');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const restoreBtn = document.getElementById('restoreBtn');
+    const statusDot = document.getElementById('statusDot');
+    const inputArea = document.getElementById('inputArea');
+
+    let isListening = false;
+
+    // ── Bridge API (exposed by preload-mini.ts) ────────────────────────────
+    const bridge = window.miniBridge;
+
+    // ── Mic button ─────────────────────────────────────────────────────────
+    micBtn.addEventListener('click', () => {
+      if (!bridge) return;
+      bridge.sendAction('mic-toggle');
+    });
+
+    // ── Text input ─────────────────────────────────────────────────────────
+    textInput.addEventListener('input', () => {
+      const hasText = textInput.value.trim().length > 0;
+      sendBtn.classList.toggle('enabled', hasText);
+    });
+
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && textInput.value.trim()) {
+        bridge?.sendAction('send-text', textInput.value.trim());
+        textInput.value = '';
+        sendBtn.classList.remove('enabled');
+        textInput.blur();
+      }
+    });
+
+    // ── Send button ────────────────────────────────────────────────────────
+    sendBtn.addEventListener('click', () => {
+      if (!bridge || !textInput.value.trim()) return;
+      bridge.sendAction('send-text', textInput.value.trim());
+      textInput.value = '';
+      sendBtn.classList.remove('enabled');
+    });
+
+    // ── Restore button ─────────────────────────────────────────────────────
+    restoreBtn.addEventListener('click', () => {
+      bridge?.restoreMain();
+    });
+
+    // ── State updates from main renderer ───────────────────────────────────
+    if (bridge) {
+      bridge.onStateUpdate((state, transcript) => {
+        // Update status dot
+        statusDot.className = 'status-dot';
+        if (state === 'listening') {
+          statusDot.classList.add('listening');
+          isListening = true;
+        } else if (state === 'thinking') {
+          statusDot.classList.add('thinking');
+          isListening = false;
+        } else if (state === 'speaking') {
+          statusDot.classList.add('speaking');
+          isListening = false;
+        } else {
+          isListening = false;
+        }
+
+        // Update mic button visual
+        micBtn.classList.toggle('active', isListening);
+
+        // Show live transcript or placeholder
+        const existingDisplay = inputArea.querySelector('.transcript-display');
+        const existingInput = inputArea.querySelector('.text-input');
+
+        if (isListening) {
+          // Switch to transcript display mode
+          if (existingInput) {
+            existingInput.style.display = 'none';
+          }
+          let display = existingDisplay;
+          if (!display) {
+            display = document.createElement('div');
+            display.className = 'transcript-display';
+            inputArea.appendChild(display);
+          }
+          display.style.display = 'flex';
+          if (transcript) {
+            display.textContent = transcript;
+            display.classList.add('has-text');
+          } else {
+            display.textContent = 'Listening...';
+            display.classList.remove('has-text');
+          }
+        } else {
+          // Switch back to text input mode
+          if (existingDisplay) {
+            existingDisplay.style.display = 'none';
+          }
+          if (existingInput) {
+            existingInput.style.display = 'block';
+            existingInput.focus();
+          }
+        }
+      });
+    }
+
+    // Auto-focus text input on load
+    setTimeout(() => textInput.focus(), 200);
+
+    // Diagnostic: verify preload bridge loaded
+    if (!bridge) {
+      console.error('[JARVIC Mini] preload bridge (window.miniBridge) not available — preload-mini.cjs may not have loaded.');
+    }
+  </script>
+</body>
+</html>

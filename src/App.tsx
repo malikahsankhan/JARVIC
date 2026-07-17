@@ -1124,8 +1124,10 @@ export default function App() {
   };
 
   const handleSendMessageRef = useRef(handleSendMessage);
+  const toggleVoiceCaptureRef = useRef(toggleVoiceCapture);
   useEffect(() => {
     handleSendMessageRef.current = handleSendMessage;
+    toggleVoiceCaptureRef.current = toggleVoiceCapture;
   });
 
   // Listen for native Electron audio events (Whisper.cpp)
@@ -1157,6 +1159,25 @@ export default function App() {
       };
     }
   }, []);
+
+  // ── Floating mini-widget bridge ──────────────────────────────────────────
+  // Listen for actions from the floating mini-widget (mic toggle, send text)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.jarvic?.onMiniEvent) return;
+    const unsubscribe = window.jarvic.onMiniEvent((data) => {
+      if (data.action === "mic-toggle") {
+        toggleVoiceCaptureRef.current();
+      } else if (data.action === "send-text" && typeof data.payload === "string") {
+        handleSendMessageRef.current(data.payload);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Push state updates to the floating mini-widget
+  useEffect(() => {
+    window.jarvic?.notifyMiniWidget?.(jarvicState, livePartial ?? undefined);
+  }, [jarvicState, livePartial]);
 
   // Synthesize short test vocal greet on first interaction
   const greetUser = () => {

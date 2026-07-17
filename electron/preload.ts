@@ -36,5 +36,25 @@ contextBridge.exposeInMainWorld("jarvic", {
     return () => {
       ipcRenderer.off("jarvic-audio-event", subscription);
     };
-  }
+  },
+
+  /**
+   * Receive events forwarded from the floating mini-widget
+   * (mic-toggle, send-text).
+   */
+  onMiniEvent: (callback: (data: { action: string; payload?: unknown }) => void): (() => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on("jarvic:from-mini", subscription);
+    return () => {
+      ipcRenderer.off("jarvic:from-mini", subscription);
+    };
+  },
+
+  /**
+   * Push the current JARVIC state (idle/listening/thinking/speaking)
+   * and optional live transcript to the floating mini-widget.
+   */
+  notifyMiniWidget: (state: string, transcript?: string): void => {
+    ipcRenderer.send("jarvic:mini-state", state, transcript);
+  },
 });
