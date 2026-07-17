@@ -12,6 +12,7 @@ export interface JarvicBridge {
   platform: string;
   versions: { node: string; chrome: string; electron: string };
   invokeTool: (name: string, args?: unknown) => Promise<JarvicToolResult>;
+  onAudioEvent?: (callback: (data: { event: string; data?: any }) => void) => () => void;
 }
 
 declare global {

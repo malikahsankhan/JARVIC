@@ -434,6 +434,14 @@ export default function App() {
     setLivePartial(null);
     setDesktopListening(false);
 
+    if (typeof window !== 'undefined' && (window as any).jarvic?.invokeTool) {
+      try {
+        await (window as any).jarvic.invokeTool('system.audio.listen', { mode: 'stop' });
+      } catch (err) {
+        console.warn('Could not stop desktop audio capture', err);
+      }
+    }
+
     if (desktopAudioIntervalRef.current) {
       window.clearInterval(desktopAudioIntervalRef.current);
       desktopAudioIntervalRef.current = null;
@@ -653,20 +661,31 @@ export default function App() {
         playSound("beep");
         const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms)}`;
         addLog(`>> [JARVIC] Initializing YouTube mainframe search sequence for "${searchTerms}"...`);
-        
-        // Stage active manual bridge override
+
         setActiveUplink({ name: `YouTube: "${searchTerms}"`, url });
 
         try {
-          const opened = window.open(url, "_blank");
-          if (opened) {
-            addLog(`>> [JARVIC] YouTube query uplink established: [VIEW SEARCH RESULTS](${url})`);
-            speakVoice(`Searching YouTube for ${searchTerms}, Sir. Query uplink established successfully.`);
+          const jarvic = (window as any).jarvic;
+          if (jarvic?.openExternal) {
+            const result = await jarvic.openExternal(url);
+            if (result?.success) {
+              addLog(`>> [JARVIC] YouTube query uplink established: [VIEW SEARCH RESULTS](${url})`);
+              speakVoice(`Searching YouTube for ${searchTerms}, Sir. Query uplink established successfully.`);
+            } else {
+              addLog(`>> [WARNING] Could not open YouTube: ${result?.error ?? "Unknown error"}. Use this link: [CLICK TO SEARCH YOUTUBE](${url})`);
+              speakVoice(`Could not open YouTube, Sir. Please use the link in the console.`);
+            }
           } else {
-            addLog(`>> [WARNING] Direct query blocked by secure browser iframe shield. Please click the glowing bridge button on the console center, or use this link: [CLICK TO SEARCH YOUTUBE](${url})`);
-            speakVoice(`Uplink blocked by browser shield, Sir. Please confirm using the central bridge button.`);
+            const opened = window.open(url, "_blank");
+            if (opened) {
+              addLog(`>> [JARVIC] YouTube query uplink established: [VIEW SEARCH RESULTS](${url})`);
+              speakVoice(`Searching YouTube for ${searchTerms}, Sir. Query uplink established successfully.`);
+            } else {
+              addLog(`>> [WARNING] Direct query blocked by secure browser iframe shield. Please click the glowing bridge button on the console center, or use this link: [CLICK TO SEARCH YOUTUBE](${url})`);
+              speakVoice(`Uplink blocked by browser shield, Sir. Please confirm using the central bridge button.`);
+            }
           }
-        } catch (e) {
+        } catch {
           addLog(`>> [WARNING] Direct lookup failed. Click manual bridge: [CLICK TO SEARCH YOUTUBE](${url})`);
           speakVoice(`Please confirm using the central bridge button, Sir.`);
         }
@@ -754,22 +773,36 @@ export default function App() {
     if (webLaunch) {
       playSound("beep");
       addLog(`>> [JARVIC] Initializing secure terminal uplink to ${webLaunch.name}...`);
-      
+
       // Stage active manual bridge override
       setActiveUplink({ name: webLaunch.name, url: webLaunch.url });
 
       try {
-        const opened = window.open(webLaunch.url, "_blank");
-        if (opened) {
-          addLog(`>> [JARVIC] Uplink successfully launched: [OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
-          speakVoice(`Opening ${webLaunch.name}, Sir. Uplink launched successfully.`);
+        // In Electron use shell.openExternal (no popup blocking);
+        // fall back to window.open in a plain browser context.
+        const jarvic = (window as any).jarvic;
+        if (jarvic?.openExternal) {
+          const result = await jarvic.openExternal(webLaunch.url);
+          if (result?.success) {
+            addLog(`>> [JARVIC] Uplink successfully launched: [OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
+            speakVoice(`Opening ${webLaunch.name}, Sir. Uplink launched successfully.`);
+          } else {
+            addLog(`>> [WARNING] Could not open ${webLaunch.name}: ${result?.error ?? "Unknown error"}. Use this link: [CLICK TO OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
+            speakVoice(`Could not open ${webLaunch.name}, Sir. Please use the link in the console.`);
+          }
         } else {
-          addLog(`>> [WARNING] Direct pop-up blocked by secure iframe shield. Please click the glowing bridge button on the console center, or use this link: [CLICK TO OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
-          speakVoice(`Uplink blocked by browser shield, Sir. Please confirm using the central bridge button.`);
+          const opened = window.open(webLaunch.url, "_blank");
+          if (opened) {
+            addLog(`>> [JARVIC] Uplink successfully launched: [OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
+            speakVoice(`Opening ${webLaunch.name}, Sir. Uplink launched successfully.`);
+          } else {
+            addLog(`>> [WARNING] Pop-up blocked. Use this link: [CLICK TO OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
+            speakVoice(`Please use the link in the console, Sir.`);
+          }
         }
       } catch (err) {
-        addLog(`>> [WARNING] Direct window initialization failed. Please click the glowing bridge button on the console center, or click this link: [CLICK TO OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
-        speakVoice(`Please confirm using the central bridge button, Sir.`);
+        addLog(`>> [WARNING] Direct window initialization failed. Click this link: [CLICK TO OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
+        speakVoice(`Please use the link in the console, Sir.`);
       }
       playSound("success");
       return;
@@ -976,6 +1009,41 @@ export default function App() {
       playSound("warning");
     }
   };
+
+  const handleSendMessageRef = useRef(handleSendMessage);
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  });
+
+  // Listen for native Electron audio events (Whisper.cpp)
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).jarvic?.onAudioEvent) {
+      console.log("[JARVIC] Binding native audio event listener");
+      const unsubscribe = (window as any).jarvic.onAudioEvent((data: { event: string; data?: any }) => {
+        if (data.event === "speech-start") {
+          addLog(">> [JARVIC] User speech detected. Interrupted vocal output.");
+          // Stop native TTS
+          try {
+            (window as any).jarvic.invokeTool("system.tts.stop").catch(() => {});
+          } catch {}
+          // Stop browser fallback TTS
+          try {
+            window.speechSynthesis?.cancel();
+          } catch {}
+          setJarvicState("listening");
+        } else if (data.event === "final-transcript") {
+          const text = data.data ?? "";
+          if (text.trim()) {
+            handleSendMessageRef.current(text);
+          }
+        }
+      });
+      return () => {
+        console.log("[JARVIC] Unbinding native audio event listener");
+        unsubscribe();
+      };
+    }
+  }, []);
 
   // Synthesize short test vocal greet on first interaction
   const greetUser = () => {

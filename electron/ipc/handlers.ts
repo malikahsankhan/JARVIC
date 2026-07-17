@@ -1,6 +1,9 @@
-import { ipcMain } from "electron";
+import { ipcMain, shell } from "electron";
 import { getTool } from "./toolRegistry";
 import { ToolResult, TOOL_CHANNEL } from "./types";
+
+/** Channel for opening URLs safely in the system's default browser. */
+export const OPEN_EXTERNAL_CHANNEL = "jarvic:openExternal";
 
 export { TOOL_CHANNEL };
 
@@ -36,6 +39,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export function registerIpcHandlers(): void {
+  // ── shell.openExternal: open a URL in the system's default browser ──────────
+  ipcMain.handle(OPEN_EXTERNAL_CHANNEL, async (_event, rawUrl: unknown): Promise<{ success: boolean; error?: string }> => {
+    if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+      return { success: false, error: "URL must be a non-empty string." };
+    }
+    // Only allow http/https to prevent file:// or shell injection
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      return { success: false, error: "Only http/https URLs are permitted." };
+    }
+    try {
+      await shell.openExternal(rawUrl);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? String(err) };
+    }
+  });
   ipcMain.handle(
     TOOL_CHANNEL,
     async (_event, rawName: unknown, rawArgs: unknown): Promise<ToolResult> => {

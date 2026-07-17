@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { TOOL_CHANNEL, ToolResult } from "./ipc/types";
+import { OPEN_EXTERNAL_CHANNEL } from "./ipc/handlers";
 
 /**
  * JARVIC secure bridge.
@@ -23,4 +24,17 @@ contextBridge.exposeInMainWorld("jarvic", {
    */
   invokeTool: (name: string, args?: unknown): Promise<ToolResult> =>
     ipcRenderer.invoke(TOOL_CHANNEL, name, args),
+  /**
+   * Open a URL in the system's default browser via shell.openExternal.
+   * This bypasses the popup-blocking issue of window.open() in Electron.
+   */
+  openExternal: (url: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
+  onAudioEvent: (callback: (data: { event: string; data?: any }) => void): (() => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on("jarvic-audio-event", subscription);
+    return () => {
+      ipcRenderer.off("jarvic-audio-event", subscription);
+    };
+  }
 });

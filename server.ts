@@ -163,15 +163,24 @@ app.post("/api/chat", async (req, res) => {
   }
 
   try {
-    // Format conversation history for Gemini, including prior tool-call
-    // requests (model turns) and tool-result turns (user turns), so a
-    // multi-step "call a tool, see the result, respond" exchange works.
     const formattedContents = messages.map((m: any) => {
       if (m.role === "assistant") {
         const parts: any[] = [];
         if (m.content) parts.push({ text: m.content });
         for (const call of m.toolCalls ?? []) {
-          parts.push({ functionCall: { name: call.name, args: call.args ?? {} } });
+          // Use the preserved raw Gemini part (including thoughtSignature) for
+          // history replay so the API doesn't reject the turn with a 400.
+          if (call._raw) {
+            parts.push(call._raw);
+          } else {
+            parts.push({
+              functionCall: {
+                name: call.name,
+                args: call.args,
+                id: call.id,
+              },
+            });
+          }
         }
         return { role: "model", parts: parts.length ? parts : [{ text: "" }] };
       }
@@ -204,7 +213,39 @@ REAL DESKTOP CONTROL:
 9. When a request opens an application and then immediately types into it (e.g. "open notepad and type X", or "open notepad" followed a moment later by "type X in it"), call apps.open first, then call input.typeText in a separate follow-up step — the newly opened window needs a brief moment to appear and receive focus, so don't assume it's instantly ready in the very same round if the app was just launched.
 10. EXCEPTION to the above for Notepad specifically: if the user wants text written AND saved into Notepad (e.g. "open notepad, write X, and save it", "write X in notepad"), do NOT use apps.open + input.typeText + input.pressKey("ctrl+s") — that requires simulating a Save dialog and is unreliable. Instead call files.writeAndOpenInNotepad in a single call, which writes the file directly and opens it already saved. Only fall back to manual typing if the user is working with an application other than Notepad that has no direct file-writing equivalent.
 11. For "search X on Google" use web.googleSearch, and for "search X on Google and show images" / "images section" use web.googleImageSearch — do not hand-build a Google URL yourself with web.open, these dedicated tools are more reliable.
-12. For interacting with any website in JARVIC's media window — clicking buttons/links, scrolling — prefer web.clickByText (click by what the button visibly says, e.g. "Sign In", "Accept all") and web.scroll over web.click/web.evaluate. You cannot see a page's CSS selectors, so guessing them with web.click will usually fail; clicking by visible text is far more reliable for real-world websites.`;
+12. For interacting with any website in JARVIC's media window — clicking buttons/links, scrolling — prefer web.clickByText (click by what the button visibly says, e.g. "Sign In", "Accept all") and web.scroll over web.click/web.evaluate. You cannot see a page's CSS selectors, so guessing them with web.click will usually fail; clicking by visible text is far more reliable for real-world websites.
+
+VOLUME & AUDIO CONTROL:
+13. For "increase/turn up volume", call system.adjustVolume with action="up". For "decrease/turn down volume", use action="down". For "mute/unmute", use action="mute". For "set volume to X%", call system.setVolume with the exact level.
+
+BRIGHTNESS CONTROL:
+14. For "increase/decrease brightness" or "set brightness to X%", use system.setBrightness or system.getBrightness. Note: this only works on laptops or monitors with WMI brightness support.
+
+CLIPBOARD:
+15. For "copy X to clipboard" or "put X in clipboard", call clipboard.write. For "what's in my clipboard" or "read clipboard", call clipboard.read. For "clear clipboard", call clipboard.clear.
+
+WI-FI & NETWORK:
+16. For "turn on/off Wi-Fi", call wifi.enable or wifi.disable. For "what Wi-Fi networks are nearby", call wifi.listNetworks. For "what's my IP address", call network.publicIp. For network adapter details, call network.info.
+
+WINDOWS SETTINGS:
+17. For "open sound settings", "open display settings", "open power settings" etc., call system.openSettings with the appropriate page key (sound, display, power, wifi, bluetooth, notifications, apps, update, privacy, storage, accounts).
+18. For "open action center" or "open notifications panel", call system.openActionCenter.
+
+WINDOW MANAGEMENT:
+19. For "minimize all windows" or "show desktop", call system.minimizeAllWindows. For "restore windows", call system.restoreAllWindows. For "switch window" or "alt-tab", call system.switchWindow.
+
+RECYCLE BIN:
+20. For "how much is in recycle bin", call recycleBin.size. For "empty recycle bin", ask user to confirm first, then call recycleBin.empty with confirm: true.
+
+SHUTDOWN TIMER:
+21. For "shutdown in X minutes" or "turn off PC in X minutes", call system.setShutdownTimer with the number of minutes. For "cancel shutdown timer", call it with minutes: 0.
+
+SYSTEM INFO:
+22. For "what apps are installed", call system.installedApps. For "what services are running", call system.runningServices. For "what's my computer name/user/OS", call system.hostname. For "what's my screen resolution", call system.getScreenResolution.
+
+DESKTOP APP UI AUTOMATION (pywinauto):
+23. For interacting with any open desktop app (click buttons, type in fields), first call desktop.listWindows to find the window title, then desktop.dumpControls to inspect its UI elements, then desktop.clickControl or desktop.typeControl to interact. This works on any Win32 or UWP app.`;
+
 
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-lite",
@@ -216,12 +257,20 @@ REAL DESKTOP CONTROL:
       },
     });
 
-    const rawCalls = response.functionCalls ?? [];
-    const toolCalls = rawCalls.map((call: any, idx: number) => ({
-      id: call.id ?? `${Date.now()}-${idx}`,
-      name: call.name,
-      args: call.args ?? {},
-    }));
+    const parts = response.candidates?.[0]?.content?.parts ?? [];
+    const toolCalls: any[] = [];
+    for (const part of parts) {
+      if (part.functionCall) {
+        toolCalls.push({
+          id: part.functionCall.id ?? `${Date.now()}-${toolCalls.length}`,
+          name: part.functionCall.name,
+          args: part.functionCall.args ?? {},
+          // Preserve the entire part object (with thoughtSignature) so
+          // formattedContents can replay it correctly on subsequent rounds.
+          _raw: part,
+        });
+      }
+    }
 
     res.json({
       role: "assistant",

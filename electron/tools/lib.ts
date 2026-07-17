@@ -22,9 +22,9 @@ export function launchDetached(command: string, args: string[] = []): void {
 }
 
 /** Run a command and capture stdout, still with an argument array (no shell). */
-export function runCaptured(command: string, args: string[], timeoutMs = 10_000): Promise<string> {
+export function runCaptured(command: string, args: string[], timeoutMs = 10_000, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(command, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 10 * 1024 * 1024, cwd }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(stderr?.toString().trim() || err.message));
         return;

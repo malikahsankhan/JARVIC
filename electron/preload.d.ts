@@ -9,6 +9,9 @@ export interface JarvicBridge {
     electron: string;
   };
   invokeTool: (name: string, args?: unknown) => Promise<ToolResult>;
+  /** Open a URL in the system's default browser (bypasses popup blocking). */
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  onAudioEvent: (callback: (data: { event: string; data?: any }) => void) => () => void;
 }
 
 declare global {
