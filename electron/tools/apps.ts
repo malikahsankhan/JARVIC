@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { registerTool } from "../ipc/toolRegistry";
-import { assertWindows, launchDetached, runCaptured } from "./lib";
+import { assertWindows, launchDetached, runCaptured, runPowerShell } from "./lib";
 
 const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
 const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
@@ -56,6 +56,9 @@ const KNOWN_APPS: Record<string, AppSpec> = {
       path.join(programFiles, "Microsoft VS Code", "Code.exe"),
     ],
   },
+  slack: { kind: "resolve-path", candidates: [
+    path.join(localAppData, "Microsoft", "WindowsApps", "slack.exe"),
+  ]},
   word: { kind: "resolve-path", candidates: [
     path.join(programFiles, "Microsoft Office", "root", "Office16", "WINWORD.EXE"),
     path.join(programFilesX86, "Microsoft Office", "root", "Office16", "WINWORD.EXE"),
@@ -121,6 +124,80 @@ registerTool({
     launchDetached(exePath, spec.args ?? []);
     await new Promise((resolve) => setTimeout(resolve, WINDOW_APPEAR_DELAY_MS));
     return { opened: key, path: exePath, message: `Opened ${key}.` };
+  },
+});
+
+registerTool({
+  name: "apps.searchAndOpen",
+  description:
+    "Searches for and opens ANY installed application by name (not just the known list). Scans Start Menu, App Execution Aliases, and system PATH. Use this when the user asks for an app not in apps.listKnown.",
+  validateArgs: (raw) => {
+    if (typeof raw !== "object" || raw === null || typeof (raw as any).name !== "string") {
+      throw new Error('Expected { name: string }');
+    }
+    const name = (raw as any).name.trim();
+    if (name.length < 1 || name.length > 100) {
+      throw new Error("App name must be between 1 and 100 characters.");
+    }
+    if (!/^[\w\-. ()[\]&]+$/.test(name)) {
+      throw new Error("App name contains invalid characters.");
+    }
+    return { name };
+  },
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("apps.searchAndOpen");
+    const escaped = name.replace(/'/g, "''");
+    const psScript = `
+      $name = '${escaped}'
+      $results = @()
+
+      # 1. Start Menu shortcuts
+      $dirs = @(
+        "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs",
+        "$env:PROGRAMDATA\\Microsoft\\Windows\\Start Menu\\Programs"
+      )
+      foreach ($dir in $dirs) {
+        if (Test-Path $dir) {
+          Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | Where-Object {
+            $_.BaseName -like "*$name*"
+          } | ForEach-Object { $results += $_.FullName }
+        }
+      }
+
+      # 2. App Execution Aliases (WindowsApps stubs)
+      $waDir = "$env:LOCALAPPDATA\\Microsoft\\WindowsApps"
+      if (Test-Path $waDir) {
+        Get-ChildItem -LiteralPath $waDir -Filter "$name.exe" -ErrorAction SilentlyContinue | ForEach-Object { $results += $_.FullName }
+      }
+
+      # 3. PATH lookup
+      if ($results.Count -eq 0) {
+        $cmd = Get-Command "$name.exe" -ErrorAction SilentlyContinue
+        if ($cmd) { $results += $cmd.Source }
+        $cmd = Get-Command "$name.cmd" -ErrorAction SilentlyContinue
+        if ($cmd) { $results += $cmd.Source }
+      }
+
+      if ($results.Count -eq 0) {
+        Write-Output "NOT_FOUND"
+      } else {
+        Write-Output ($results -join "|")
+      }
+    `;
+    const output = await runPowerShell(psScript, 15000);
+    if (output.trim() === "NOT_FOUND" || !output.trim()) {
+      return { launched: false, searched: name, message: `Could not find "${name}" installed on this machine.` };
+    }
+    const matches = output.split("|").map((s) => s.trim()).filter(Boolean);
+    const target = matches[0];
+
+    if (target.endsWith(".lnk")) {
+      launchDetached("cmd.exe", ["/c", "start", "", target]);
+    } else {
+      launchDetached(target);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return { launched: true, name, path: target, matches: matches.length > 1 ? matches.slice(1) : undefined };
   },
 });
 

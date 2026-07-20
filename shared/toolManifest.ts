@@ -21,7 +21,7 @@ export interface ToolManifestEntry {
 const KNOWN_APP_KEYS = [
   "notepad", "calculator", "paint", "explorer", "task-manager", "control-panel",
   "settings", "cmd", "powershell", "windows-terminal", "device-manager",
-  "registry-editor", "snipping-tool", "chrome", "edge", "vscode", "word", "excel", "powerpoint",
+  "registry-editor", "snipping-tool", "chrome", "edge", "vscode", "slack", "word", "excel", "powerpoint",
 ];
 
 const KNOWN_FOLDER_KEYS = ["home", "desktop", "documents", "downloads", "pictures", "videos"];
@@ -34,6 +34,15 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
       type: "object",
       properties: { key: { type: "string", description: "One of: " + KNOWN_APP_KEYS.join(", "), enum: KNOWN_APP_KEYS } },
       required: ["key"],
+    },
+  },
+  {
+    name: "apps.searchAndOpen",
+    description: "Searches for and opens ANY installed application by name (not just the known list). Scans Start Menu shortcuts, App Execution Aliases, and system PATH. Use this for apps not in apps.open.",
+    parameters: {
+      type: "object",
+      properties: { name: { type: "string", description: "Application name to search for (e.g. 'slack', 'spotify', 'obsidian')." } },
+      required: ["name"],
     },
   },
   {
