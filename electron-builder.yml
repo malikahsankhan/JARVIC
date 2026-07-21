@@ -57,3 +57,11 @@ extraResources:
       - "ggml-tiny.en.bin"
       - "Release/whisper-cli.exe"
       - "Release/*.dll"
+  # Windows UI Automation engine — plain Python files, must ship outside
+  # app.asar so `python <path>` can open them directly. Resolved at runtime
+  # via process.resourcesPath in electron/tools/desktop_automation.ts.
+  - from: electron/tools
+    to: automation
+    filter:
+      - "desktop_automation.py"
+      - "lib/automation_engine.py"

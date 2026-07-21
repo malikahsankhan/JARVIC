@@ -391,12 +391,17 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "desktop.listWindows",
-    description: "Lists all active desktop windows with their titles and handles using pywinauto.",
+    description: "Lists all active desktop windows with their titles, class names, and handles. Uses UIA (pywinauto) with automatic uiautomation/Win32 fallback.",
+    parameters: { type: "object", properties: {} },
+  },
+  {
+    name: "desktop.getActiveWindow",
+    description: "Returns the title, class name, and handle of the currently focused/foreground window.",
     parameters: { type: "object", properties: {} },
   },
   {
     name: "desktop.dumpControls",
-    description: "Dumps all UI controls and elements within a targeted window by title using pywinauto.",
+    description: "Dumps all UI controls and elements within a targeted window by title (regex). Works reliably across Slack, Teams, VS Code, Settings, browsers, and Office apps via UIA.",
     parameters: {
       type: "object",
       properties: {
@@ -407,21 +412,52 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "desktop.clickControl",
-    description: "Clicks a specific control element (button, menu, edit box) inside a window using pywinauto.",
+    description: "Clicks a specific control (button, menu item, checkbox, tab, list item) inside a window. Matches by automationId, name, control type, or class name, and tries multiple click strategies (Invoke, Selection, LegacyIAccessible, synthetic click, Win32/mouse fallback) so it never silently fails after one attempt.",
     parameters: {
       type: "object",
       properties: {
         windowTitle: { type: "string" },
         controlText: { type: "string" },
         autoId: { type: "string" },
-        controlType: { type: "string" }
+        controlType: { type: "string" },
+        className: { type: "string" }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.doubleClickControl",
+    description: "Double-clicks a specific control inside a window, using the same multi-strategy fallback chain as desktop.clickControl.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.rightClickControl",
+    description: "Right-clicks a specific control inside a window (e.g. to open a context menu), using the same multi-strategy fallback chain as desktop.clickControl.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" }
       },
       required: ["windowTitle"]
     }
   },
   {
     name: "desktop.typeControl",
-    description: "Focuses and types text into a control element within a window using pywinauto.",
+    description: "Focuses and types text into a control (edit box, search field, chat compose box) within a window. If no control is specified, types into whatever has focus. Tries ValuePattern, set_edit_text, type_keys, uiautomation SendKeys, then raw keyboard simulation, and verifies the resulting value.",
     parameters: {
       type: "object",
       properties: {
@@ -429,9 +465,100 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
         text: { type: "string" },
         controlText: { type: "string" },
         autoId: { type: "string" },
-        controlType: { type: "string" }
+        controlType: { type: "string" },
+        className: { type: "string" }
       },
       required: ["windowTitle", "text"]
+    }
+  },
+  {
+    name: "desktop.selectItem",
+    description: "Selects an item in a list, combo box, tree, or tab control (e.g. a Slack channel, a dropdown option) using SelectionItemPattern, falling back to a click.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" },
+        itemName: { type: "string", description: "Name of the item to select, if the control itself lists multiple items." }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.expandControl",
+    description: "Expands a collapsible control (tree node, dropdown, sidebar section) using ExpandCollapsePattern, falling back to a click.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.collapseControl",
+    description: "Collapses an expanded control (tree node, dropdown, sidebar section) using ExpandCollapsePattern, falling back to a click.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.scrollControl",
+    description: "Scrolls a control (list, panel, chat log) up or down using ScrollPattern, falling back to a synthetic mouse wheel event.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" },
+        controlType: { type: "string" },
+        className: { type: "string" },
+        direction: { type: "string", enum: ["up", "down"] },
+        amount: { type: "number", description: "Number of scroll lines/notches. Default 3." }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.setFocusControl",
+    description: "Sets keyboard focus to a specific window or control within it, without clicking or typing.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" }
+      },
+      required: ["windowTitle"]
+    }
+  },
+  {
+    name: "desktop.sendKeysToControl",
+    description: 'Sends a key or key combo (e.g. "{ENTER}", "^c", "%{F4}") to a specific window, optionally focusing a control first. For typing into whatever currently has focus anywhere on the desktop, prefer input.typeText / input.pressKey instead.',
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        key: { type: "string" },
+        controlText: { type: "string" },
+        autoId: { type: "string" }
+      },
+      required: ["windowTitle", "key"]
     }
   },
 
