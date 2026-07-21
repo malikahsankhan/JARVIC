@@ -779,8 +779,10 @@ export default function App() {
 
         try {
           const jarvic = (window as any).jarvic;
-          if (jarvic?.openExternal) {
-            const result = await jarvic.openExternal(url);
+          if (jarvic?.invokeTool) {
+            // Opens in JARVIC's own persistent browser (BrowserManager),
+            // not the OS default browser.
+            const result = await jarvic.invokeTool("web.open", { url });
             if (result?.success) {
               addLog(`>> [JARVIC] YouTube query uplink established: [VIEW SEARCH RESULTS](${url})`);
               speakVoice(`Searching YouTube for ${searchTerms}, Sir. Query uplink established successfully.`);
@@ -891,11 +893,14 @@ export default function App() {
       setActiveUplink({ name: webLaunch.name, url: webLaunch.url });
 
       try {
-        // In Electron use shell.openExternal (no popup blocking);
-        // fall back to window.open in a plain browser context.
+        // In Electron, open in JARVIC's own persistent browser via the
+        // web.open tool (BrowserManager) so these shortcuts land in the
+        // same Chrome instance/profile as every other browser command —
+        // never the OS default browser. Fall back to window.open in a
+        // plain (non-Electron) browser context.
         const jarvic = (window as any).jarvic;
-        if (jarvic?.openExternal) {
-          const result = await jarvic.openExternal(webLaunch.url);
+        if (jarvic?.invokeTool) {
+          const result = await jarvic.invokeTool("web.open", { url: webLaunch.url });
           if (result?.success) {
             addLog(`>> [JARVIC] Uplink successfully launched: [OPEN ${webLaunch.name.toUpperCase()}](${webLaunch.url})`);
             speakVoice(`Opening ${webLaunch.name}, Sir. Uplink launched successfully.`);

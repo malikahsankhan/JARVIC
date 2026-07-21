@@ -5,6 +5,7 @@ import http from "http";
 import { fork, ChildProcess } from "child_process";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { openUrlInMediaWindow } from "./mediaWindow";
+import { browserManager } from "./browser/BrowserManager";
 import "./tools"; // side-effect: registers every tool module into the registry
 import "./tools/audio";
 
@@ -288,6 +289,15 @@ app.whenReady().then(() => {
   startBundledServer();
   createWindow();
 
+  // Launch JARVIC's own persistent Chrome browser once at startup. It stays
+  // alive for the whole session and is reused by every web.* tool — see
+  // electron/browser/BrowserManager.ts. This runs in parallel with window
+  // creation rather than blocking it; browser tools simply await it lazily
+  // the first time they're used if it's still starting up.
+  browserManager.launch().catch((err) => {
+    console.error("[JARVIC] Failed to launch the browser:", err);
+  });
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -301,9 +311,21 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+// Close JARVIC's browser gracefully before the app actually exits. We
+// preventDefault() once so the async shutdown can finish, then quit for real.
+let quittingAfterBrowserShutdown = false;
+app.on("before-quit", (event) => {
   destroyMiniWidget();
   stopBundledServer();
+
+  if (!quittingAfterBrowserShutdown && browserManager.isRunning()) {
+    event.preventDefault();
+    quittingAfterBrowserShutdown = true;
+    browserManager
+      .shutdown()
+      .catch((err) => console.error("[JARVIC] Error shutting down the browser:", err))
+      .finally(() => app.quit());
+  }
 });
 
 app.on("will-quit", () => {
