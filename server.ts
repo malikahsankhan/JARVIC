@@ -71,7 +71,6 @@ app.post("/api/transcribe-whisper", express.raw({ type: "*/*", limit: "20mb" }),
   }
 });
 
-// Initialize Gemini client safely if API key is present
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
 if (apiKey) {
@@ -300,8 +299,11 @@ SHUTDOWN TIMER:
 SYSTEM INFO:
 22. For "what apps are installed", call system.installedApps. For "what services are running", call system.runningServices. For "what's my computer name/user/OS", call system.hostname. For "what's my screen resolution", call system.getScreenResolution.
 
+WEB VS APP:
+24. For opening a website (e.g. "open YouTube", "open Google", "open GitHub", "open reddit"), ALWAYS call web.open with the full URL. Do NOT call apps.searchAndOpen for website names — that tool is for actual desktop applications only.
+
 DESKTOP APP UI AUTOMATION (pywinauto):
-23. For interacting with any open desktop app (click buttons, type in fields), first call desktop.listWindows to find the window title, then desktop.dumpControls to inspect its UI elements, then desktop.clickControl or desktop.typeControl to interact. This works on any Win32 or UWP app.`;
+25. For interacting with any open desktop app (click buttons, type in fields), first call desktop.listWindows to find the window title, then desktop.dumpControls to inspect its UI elements, then desktop.clickControl or desktop.typeControl to interact. This works on any Win32 or UWP app.`;
 
 
     const response = await ai.models.generateContent({

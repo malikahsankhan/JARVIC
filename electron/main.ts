@@ -75,8 +75,8 @@ let miniWindow: BrowserWindow | null = null;
 // ---------------------------------------------------------------------------
 // Floating mini-widget (appears when main window is minimized)
 // ---------------------------------------------------------------------------
-const MINI_WIDTH = 360;
-const MINI_HEIGHT = 52;
+const MINI_WIDTH = 380;
+const MINI_HEIGHT = 64;
 const MINI_MARGIN = 16;
 
 function getMiniHtmlPath(): string {

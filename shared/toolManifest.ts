@@ -251,7 +251,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.googleSearch",
-    description: "Opens Google search results for a query in JARVIC's controlled window.",
+    description: "Opens Google search results for a query in the connected Chrome browser.",
     parameters: {
       type: "object",
       properties: { query: { type: "string" } },
@@ -261,7 +261,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   {
     name: "web.googleImageSearch",
     description:
-      "Opens Google's Images tab for a query in JARVIC's controlled window. Use this for 'search X and show images' / 'in the images section' requests.",
+      "Opens Google's Images tab for a query in the connected Chrome browser. Use this for 'search X and show images' / 'in the images section' requests.",
     parameters: {
       type: "object",
       properties: { query: { type: "string" } },
@@ -270,7 +270,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.open",
-    description: "Opens any URL in JARVIC's own controlled browser window (not the user's default browser).",
+    description: "Opens any URL in the connected Chrome browser window.",
     parameters: {
       type: "object",
       properties: { url: { type: "string" } },
@@ -279,7 +279,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.evaluate",
-    description: "Runs JavaScript in JARVIC's controlled media window and returns the result.",
+    description: "Runs JavaScript in the connected Chrome browser and returns the result.",
     parameters: {
       type: "object",
       properties: { script: { type: "string" } },
@@ -288,7 +288,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.scroll",
-    description: "Scrolls the page in JARVIC's controlled media window up or down.",
+    description: "Scrolls the page in the connected Chrome browser up or down.",
     parameters: {
       type: "object",
       properties: {
@@ -309,7 +309,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.click",
-    description: "Clicks the first element matching the given CSS selector in JARVIC's controlled media window.",
+    description: "Clicks the first element matching the given CSS selector in the connected Chrome browser.",
     parameters: {
       type: "object",
       properties: { selector: { type: "string" } },
@@ -318,7 +318,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   },
   {
     name: "web.type",
-    description: "Types text into the first matching input or textarea element in JARVIC's controlled media window.",
+    description: "Types text into the first matching input or textarea element in the connected Chrome browser.",
     parameters: {
       type: "object",
       properties: {
