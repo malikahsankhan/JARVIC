@@ -7,64 +7,48 @@
   <title>JARVIC Mini</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
       background: transparent;
       overflow: hidden;
       user-select: none;
+      -webkit-app-region: drag;
+      width: 100vw;
+      height: 100vh;
     }
 
-    /* ── Widget pill ── */
     .widget {
-      width: 380px;
-      height: 64px;
+      width: 100%;
+      height: 100%;
       border-radius: 32px;
-      background: rgba(8, 12, 24, 0.92);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(6, 182, 212, 0.2);
+      background: rgba(6, 8, 20, 0.94);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(6, 182, 212, 0.15);
       display: flex;
       align-items: center;
       gap: 6px;
       padding: 0 10px 0 4px;
       position: relative;
-      transition: box-shadow 0.4s ease, border-color 0.4s ease;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+      transition: border-color 0.4s ease, box-shadow 0.4s ease;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
-    /* Scanline overlay */
     .widget::before {
       content: "";
       position: absolute;
       inset: 0;
       border-radius: 32px;
-      background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.1) 50%);
-      background-size: 100% 2px;
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.05) 0%, transparent 50%, rgba(168, 85, 247, 0.03) 100%);
       pointer-events: none;
-      z-index: 10;
+      z-index: 1;
     }
 
-    /* ── Glow ring states ── */
-    .widget.speaking {
-      border-color: rgba(16, 185, 129, 0.35);
-      box-shadow: 0 0 30px rgba(16, 185, 129, 0.12), 0 0 60px rgba(16, 185, 129, 0.04), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
-      animation: breathe-glow 2s ease-in-out infinite;
-    }
-    .widget.listening {
-      border-color: rgba(245, 158, 11, 0.35);
-      box-shadow: 0 0 25px rgba(245, 158, 11, 0.10), 0 0 50px rgba(245, 158, 11, 0.03), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
-    }
-    .widget.thinking {
-      border-color: rgba(168, 85, 247, 0.35);
-      box-shadow: 0 0 25px rgba(168, 85, 247, 0.10), 0 0 50px rgba(168, 85, 247, 0.03), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
-    }
+    /* ── Glow states ── */
+    .widget.speaking { border-color: rgba(16, 185, 129, 0.3); box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03), 0 0 60px rgba(16, 185, 129, 0.06); }
+    .widget.listening { border-color: rgba(245, 158, 11, 0.3); box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03), 0 0 60px rgba(245, 158, 11, 0.06); }
+    .widget.thinking { border-color: rgba(168, 85, 247, 0.3); box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03), 0 0 60px rgba(168, 85, 247, 0.06); }
 
-    @keyframes breathe-glow {
-      0%, 100% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.10), 0 0 50px rgba(16, 185, 129, 0.03), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04); }
-      50% { box-shadow: 0 0 40px rgba(16, 185, 129, 0.20), 0 0 80px rgba(16, 185, 129, 0.08), 0 4px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04); }
-    }
-
-    /* ── The Orb ── */
+    /* ── Orb ── */
     .orb {
       width: 44px;
       height: 44px;
@@ -80,191 +64,102 @@
     }
 
     .orb-inner {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      position: relative;
-      z-index: 2;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 100%; height: 100%; border-radius: 50%; position: relative; z-index: 2; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
     }
-
     .orb-inner::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, rgba(6, 182, 212, 0.4), rgba(6, 182, 212, 0.12) 50%, rgba(8, 12, 24, 0.6) 100%);
-      transition: background 0.5s ease;
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, rgba(6, 182, 212, 0.5), rgba(6, 182, 212, 0.15) 50%, rgba(6, 182, 212, 0.05) 100%);
+      transition: background 0.4s ease;
     }
-
     .orb-inner::after {
-      content: "";
-      position: absolute;
-      inset: -6px;
-      border-radius: 50%;
-      background: conic-gradient(transparent, rgba(6, 182, 212, 0.25), rgba(6, 182, 212, 0.5), rgba(6, 182, 212, 0.25), transparent);
-      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1px), #000 100%);
-      mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1px), #000 100%);
-      animation: spin-ring 4s linear infinite;
-      opacity: 0.4;
-      transition: opacity 0.5s ease;
-      z-index: 1;
+      content: ""; position: absolute; inset: -3px; border-radius: 50%;
+      background: conic-gradient(from 180deg, transparent 0deg, rgba(6, 182, 212, 0.15) 120deg, rgba(6, 182, 212, 0.5) 240deg, rgba(6, 182, 212, 0.15) 360deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 0.5px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 0.5px));
+      animation: spin-ring 4s linear infinite; opacity: 0.5; z-index: 1;
     }
+    @keyframes spin-ring { to { transform: rotate(360deg); } }
 
-    @keyframes spin-ring {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    .mic-icon { width: 18px; height: 18px; fill: rgba(6, 182, 212, 0.8); z-index: 3; position: relative; transition: fill 0.3s ease; }
 
-    .mic-icon {
-      width: 18px;
-      height: 18px;
-      fill: rgba(6, 182, 212, 0.7);
-      z-index: 3;
-      position: relative;
-      transition: fill 0.3s ease;
-    }
-
-    /* ── Ripple waves ── */
-    .ripple {
-      position: absolute;
-      inset: 0;
-      border-radius: 50%;
-      border: 1.5px solid rgba(6, 182, 212, 0.15);
-      animation: ripple-out 2.5s ease-out infinite;
-      pointer-events: none;
-      z-index: 0;
-    }
+    .ripple { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(6, 182, 212, 0.08); animation: ripple-out 2.5s ease-out infinite; pointer-events: none; z-index: 0; }
     .ripple:nth-child(2) { animation-delay: 0.8s; }
     .ripple:nth-child(3) { animation-delay: 1.6s; }
+    @keyframes ripple-out { 0% { transform: scale(1); opacity: 0.4; } 100% { transform: scale(2.5); opacity: 0; } }
 
-    @keyframes ripple-out {
-      0%   { transform: scale(1); opacity: 0.5; }
-      100% { transform: scale(2); opacity: 0; }
-    }
+    .orb.listening .orb-inner::before { background: radial-gradient(circle at 35% 30%, rgba(245, 158, 11, 0.55), rgba(245, 158, 11, 0.18) 50%, rgba(245, 158, 11, 0.05) 100%); }
+    .orb.listening .orb-inner::after { background: conic-gradient(from 180deg, transparent, rgba(245, 158, 11, 0.3), rgba(245, 158, 11, 0.6), rgba(245, 158, 11, 0.3), transparent); opacity: 0.8; }
+    .orb.listening .mic-icon { fill: rgba(245, 158, 11, 0.95); }
+    .orb.listening .ripple { border-color: rgba(245, 158, 11, 0.15); }
 
-    /* ── Orb states ── */
-    .orb.listening .orb-inner::before {
-      background: radial-gradient(circle at 35% 30%, rgba(245, 158, 11, 0.5), rgba(245, 158, 11, 0.15) 50%, rgba(8, 12, 24, 0.6) 100%);
-    }
-    .orb.listening .orb-inner::after {
-      background: conic-gradient(transparent, rgba(245, 158, 11, 0.3), rgba(245, 158, 11, 0.6), rgba(245, 158, 11, 0.3), transparent);
-      opacity: 0.7;
-    }
-    .orb.listening .mic-icon { fill: rgba(245, 158, 11, 0.9); }
-    .orb.listening .ripple { border-color: rgba(245, 158, 11, 0.2); }
+    .orb.thinking .orb-inner::before { background: radial-gradient(circle at 35% 30%, rgba(168, 85, 247, 0.5), rgba(168, 85, 247, 0.18) 50%, rgba(168, 85, 247, 0.05) 100%); }
+    .orb.thinking .orb-inner::after { background: conic-gradient(from 180deg, transparent, rgba(168, 85, 247, 0.3), rgba(168, 85, 247, 0.6), rgba(168, 85, 247, 0.3), transparent); animation: spin-ring 1.2s linear infinite; opacity: 0.9; }
+    .orb.thinking .mic-icon { fill: rgba(168, 85, 247, 0.9); }
 
-    .orb.thinking .orb-inner::before {
-      background: radial-gradient(circle at 35% 30%, rgba(168, 85, 247, 0.4), rgba(168, 85, 247, 0.12) 50%, rgba(8, 12, 24, 0.6) 100%);
-    }
-    .orb.thinking .orb-inner::after {
-      background: conic-gradient(transparent, rgba(168, 85, 247, 0.3), rgba(168, 85, 247, 0.6), rgba(168, 85, 247, 0.3), transparent);
-      animation: spin-ring 1.2s linear infinite;
-      opacity: 0.8;
-    }
-    .orb.thinking .mic-icon { fill: rgba(168, 85, 247, 0.8); }
-
-    .orb.speaking .orb-inner::before {
-      background: radial-gradient(circle at 35% 30%, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.2) 50%, rgba(8, 12, 24, 0.6) 100%);
-    }
-    .orb.speaking .orb-inner::after {
-      background: conic-gradient(transparent, rgba(16, 185, 129, 0.4), rgba(16, 185, 129, 0.8), rgba(16, 185, 129, 0.4), transparent);
-      opacity: 1;
-    }
+    .orb.speaking .orb-inner::before { background: radial-gradient(circle at 35% 30%, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.2) 50%, rgba(16, 185, 129, 0.05) 100%); }
+    .orb.speaking .orb-inner::after { background: conic-gradient(from 180deg, transparent, rgba(16, 185, 129, 0.4), rgba(16, 185, 129, 0.8), rgba(16, 185, 129, 0.4), transparent); opacity: 1; }
     .orb.speaking .mic-icon { fill: rgba(16, 185, 129, 1); }
-    .orb.speaking .ripple { border-color: rgba(16, 185, 129, 0.25); animation: ripple-out 1.5s ease-out infinite; }
+    .orb.speaking .ripple { border-color: rgba(16, 185, 129, 0.15); animation: ripple-out 1.5s ease-out infinite; }
     .orb.speaking .ripple:nth-child(2) { animation-delay: 0.5s; }
     .orb.speaking .ripple:nth-child(3) { animation-delay: 1.0s; }
 
-    /* ── Input area ── */
+    /* ── Input ── */
     .input-area {
-      -webkit-app-region: no-drag;
       flex: 1;
-      height: 34px;
+      height: 32px;
       display: flex;
       align-items: center;
       z-index: 2;
       min-width: 0;
+      -webkit-app-region: no-drag;
     }
 
     .text-input {
       width: 100%;
       height: 100%;
       background: rgba(6, 182, 212, 0.04);
-      border: 1px solid rgba(6, 182, 212, 0.1);
+      border: 1px solid rgba(6, 182, 212, 0.08);
       border-radius: 8px;
       padding: 0 10px;
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 12px;
-      color: #e2e8f0;
+      color: #e0e6f0;
       outline: none;
-      letter-spacing: 0.02em;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      letter-spacing: 0.01em;
+      transition: border-color 0.2s ease;
     }
-    .text-input::placeholder { color: rgba(6, 182, 212, 0.25); }
-    .text-input:focus { border-color: rgba(6, 182, 212, 0.35); box-shadow: 0 0 8px rgba(6, 182, 12, 0.08); }
+    .text-input::placeholder { color: rgba(90, 110, 150, 0.4); }
+    .text-input:focus { border-color: rgba(6, 182, 212, 0.2); }
 
     .transcript-display {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      padding: 0 10px;
-      font-size: 12px;
-      color: rgba(6, 182, 212, 0.7);
-      letter-spacing: 0.02em;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      width: 100%; height: 100%; display: flex; align-items: center; padding: 0 10px;
+      font-size: 12px; color: rgba(6, 182, 212, 0.6); letter-spacing: 0.01em;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     }
     .transcript-display.has-text { color: #22d3ee; }
 
-    /* ── Send button ── */
-    .send-btn {
-      -webkit-app-region: no-drag;
-      width: 30px;
-      height: 30px;
-      border-radius: 8px;
-      border: 1px solid rgba(6, 182, 212, 0.15);
-      background: rgba(6, 182, 212, 0.04);
-      color: #22d3ee;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      z-index: 2;
-      flex-shrink: 0;
-      opacity: 0.4;
-      pointer-events: none;
-    }
-    .send-btn.enabled { opacity: 1; pointer-events: auto; }
-    .send-btn.enabled:hover { background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.4); box-shadow: 0 0 8px rgba(6, 182, 212, 0.1); }
-    .send-btn svg { width: 14px; height: 14px; fill: currentColor; }
-
-    /* ── Restore button ── */
-    .restore-btn {
-      -webkit-app-region: no-drag;
-      width: 26px;
-      height: 26px;
+    /* ── Buttons ── */
+    .btn {
+      width: 28px;
+      height: 28px;
       border-radius: 6px;
       border: none;
       background: transparent;
-      color: rgba(6, 182, 212, 0.25);
+      color: rgba(90, 110, 150, 0.5);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      -webkit-app-region: no-drag;
       transition: all 0.2s ease;
-      z-index: 2;
       flex-shrink: 0;
     }
-    .restore-btn:hover { color: #22d3ee; background: rgba(6, 182, 212, 0.08); }
-    .restore-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .btn:hover { color: #22d3ee; background: rgba(6, 182, 212, 0.08); }
+    .btn svg { width: 14px; height: 14px; }
+    .btn-send svg { fill: currentColor; stroke: none; }
+    .btn-open svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   </style>
 </head>
 <body>
@@ -285,11 +180,11 @@
       <input type="text" class="text-input" id="textInput" placeholder="Type a command..." autocomplete="off" spellcheck="false" />
     </div>
 
-    <button class="send-btn" id="sendBtn" title="Send">
+    <button class="btn btn-send" id="sendBtn" title="Send">
       <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
     </button>
 
-    <button class="restore-btn" id="restoreBtn" title="Restore JARVIC">
+    <button class="btn btn-open" id="restoreBtn" title="Open JARVIC">
       <svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><path d="M21 3l-7 7"/><path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/></svg>
     </button>
   </div>
@@ -297,78 +192,63 @@
   <script>
     const widget = document.getElementById('widget');
     const orb = document.getElementById('orb');
-    const micBtn = orb;
     const textInput = document.getElementById('textInput');
     const sendBtn = document.getElementById('sendBtn');
     const restoreBtn = document.getElementById('restoreBtn');
-    const inputArea = document.getElementById('inputArea');
-
     const bridge = window.miniBridge;
     let isListening = false;
 
-    // ── Mic orb click ──
+    // ── Mic toggle ──
     orb.addEventListener('click', () => {
-      if (!bridge) return;
-      bridge.sendAction('mic-toggle');
+      bridge?.sendAction('mic-toggle');
     });
 
     // ── Text input ──
-    textInput.addEventListener('input', () => {
-      sendBtn.classList.toggle('enabled', textInput.value.trim().length > 0);
-    });
     textInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && textInput.value.trim()) {
         bridge?.sendAction('send-text', textInput.value.trim());
         textInput.value = '';
-        sendBtn.classList.remove('enabled');
-        textInput.blur();
       }
     });
-
-    // ── Send button ──
     sendBtn.addEventListener('click', () => {
       if (!bridge || !textInput.value.trim()) return;
       bridge.sendAction('send-text', textInput.value.trim());
       textInput.value = '';
-      sendBtn.classList.remove('enabled');
     });
-
-    // ── Restore button ──
     restoreBtn.addEventListener('click', () => { bridge?.restoreMain(); });
 
     // ── State updates ──
     if (bridge) {
       bridge.onStateUpdate((state, transcript) => {
-        // Widget glow
         widget.className = 'widget';
         if (state === 'speaking') widget.classList.add('speaking');
         else if (state === 'listening') widget.classList.add('listening');
         else if (state === 'thinking') widget.classList.add('thinking');
 
-        // Orb
         orb.className = 'orb';
         if (state === 'listening') { orb.classList.add('listening'); isListening = true; }
         else if (state === 'thinking') { orb.classList.add('thinking'); isListening = false; }
         else if (state === 'speaking') { orb.classList.add('speaking'); isListening = false; }
         else { orb.classList.add('idle'); isListening = false; }
 
-        // Input area
-        const existingDisplay = inputArea.querySelector('.transcript-display');
-        const existingInput = inputArea.querySelector('.text-input');
+        // Show transcript when listening
+        const existingDisplay = document.querySelector('.transcript-display');
+        const inputEl = document.getElementById('textInput');
         if (isListening) {
-          if (existingInput) existingInput.style.display = 'none';
+          inputEl.style.display = 'none';
           let display = existingDisplay;
           if (!display) {
             display = document.createElement('div');
             display.className = 'transcript-display';
-            inputArea.appendChild(display);
+            document.getElementById('inputArea').appendChild(display);
           }
           display.style.display = 'flex';
           display.textContent = transcript || 'Listening...';
           display.classList.toggle('has-text', !!transcript);
         } else {
           if (existingDisplay) existingDisplay.style.display = 'none';
-          if (existingInput) { existingInput.style.display = 'block'; existingInput.focus(); }
+          inputEl.style.display = 'block';
+          inputEl.focus();
         }
       });
     }

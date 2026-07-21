@@ -77,8 +77,8 @@ let miniWindow: BrowserWindow | null = null;
 // ---------------------------------------------------------------------------
 // Floating mini-widget (appears when main window is minimized)
 // ---------------------------------------------------------------------------
-const MINI_WIDTH = 380;
-const MINI_HEIGHT = 64;
+const MINI_W = 380;
+const MINI_H = 64;
 const MINI_MARGIN = 16;
 
 function getMiniHtmlPath(): string {
@@ -92,12 +92,12 @@ function createMiniWindow(): void {
 
   const display = screen.getPrimaryDisplay();
   const { width: screenW, height: screenH } = display.workAreaSize;
-  const x = screenW - MINI_WIDTH - MINI_MARGIN;
-  const y = screenH - MINI_HEIGHT - MINI_MARGIN;
+  const x = screenW - MINI_W - MINI_MARGIN;
+  const y = screenH - MINI_H - MINI_MARGIN;
 
   miniWindow = new BrowserWindow({
-    width: MINI_WIDTH,
-    height: MINI_HEIGHT,
+    width: MINI_W,
+    height: MINI_H,
     x,
     y,
     frame: false,
@@ -171,8 +171,6 @@ function registerMiniIpc(): void {
   // Mini widget requests main window restore
   ipcMain.on("jarvic:mini-restore", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      // restore() brings window out of minimized state, show() makes it visible,
-      // focus() brings it to the foreground.
       mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
@@ -180,6 +178,7 @@ function registerMiniIpc(): void {
     }
     hideMiniWidget();
   });
+
 }
 
 /** Poll the local server until it responds, then resolve. */
