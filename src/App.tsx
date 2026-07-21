@@ -986,7 +986,8 @@ export default function App() {
 
     if (command === "clear") {
       setSystemLogs([]);
-      addLog(">> Terminal memory flushed.");
+      setMessages([]);
+      addLog(">> Terminal memory flushed. Conversation history reset.");
       playSound("click");
       return;
     }
@@ -1032,14 +1033,39 @@ export default function App() {
     let workingMessages: Message[] = [...messages, { role: "user", content: query, timestamp: new Date().toISOString() }];
     setMessages(workingMessages);
 
-    const MAX_TOOL_ROUNDS = 6;
+    const MAX_TOOL_ROUNDS = 12;
+
+    // The full `messages` state keeps growing for as long as the app stays
+    // open (every dumpControls/screenshot result from every command all
+    // session long), and there's no automatic reset. Sending all of it on
+    // every round is what caused the "payload too large" -> HTML error page
+    // -> "Unexpected token '<'" failure, and it'll keep recurring in long
+    // sessions even with the server-side size bump, since history only ever
+    // grows. Instead, only send a recent, bounded window to the API: keep
+    // the last N messages in full, and replace any tool-result content
+    // older than that with a short placeholder so the model still knows a
+    // tool ran there, without resending its (possibly huge) payload.
+    const RECENT_MESSAGES_KEPT_IN_FULL = 16;
+    function buildApiPayload(all: Message[]): Message[] {
+      const cutoff = Math.max(0, all.length - RECENT_MESSAGES_KEPT_IN_FULL);
+      return all.map((m, i) => {
+        if (i >= cutoff || m.role !== "tool" || !m.toolResults) return m;
+        return {
+          ...m,
+          toolResults: m.toolResults.map((tr) => ({
+            ...tr,
+            result: { ...tr.result, data: "[older tool output omitted to keep request size bounded]" },
+          })),
+        };
+      });
+    }
 
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: workingMessages })
+          body: JSON.stringify({ messages: buildApiPayload(workingMessages) })
         });
 
         if (!response.ok) {
@@ -1191,7 +1217,7 @@ export default function App() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#020617] text-cyan-400 font-mono flex flex-col p-4 md:p-6 lg:p-8 select-none overflow-x-hidden relative scanlines">
+    <div className="w-full min-h-screen bg-[#020617] text-cyan-400 font-mono flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden relative scanlines">
       {/* Holographic glowing grids */}
       <div className="absolute inset-0 opacity-[0.07] pointer-events-none grid-overlay" />
       <div className="absolute inset-0 bg-gradient-to-t from-cyan-950/10 via-transparent to-transparent pointer-events-none" />

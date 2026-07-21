@@ -374,17 +374,39 @@ class AutomationEngine:
 
     # -- control discovery ------------------------------------------------
 
-    def list_controls(self, win):
+    def list_controls(self, win, max_controls: int = 400):
+        """Dumps descendant controls, filtered and capped so the result stays
+        small enough to round-trip through the chat API even on huge
+        Chromium/Electron accessibility trees (e.g. Slack, Teams).
+
+        - Skips elements with no name AND no automation id (pure layout/
+          container noise — rarely what you want to click anyway).
+        - Caps the total at max_controls, prioritizing named/interactive
+          elements over unnamed ones so the truncation doesn't just chop off
+          whatever pywinauto happened to enumerate first.
+        """
         self._log("Dumping descendant controls")
-        controls = []
         try:
+            named: list = []
+            unnamed: list = []
             for ctrl in win.descendants():
-                controls.append({
-                    "text": ctrl.window_text(),
+                text = (ctrl.window_text() or "").strip()
+                auto_id = ctrl.element_info.automation_id or ""
+                if not text and not auto_id:
+                    continue  # unlabeled layout/container noise
+                entry = {
+                    "text": text,
                     "control_type": ctrl.element_info.control_type,
-                    "auto_id": ctrl.element_info.automation_id,
+                    "auto_id": auto_id,
                     "class_name": ctrl.element_info.class_name,
-                })
+                }
+                (named if text else unnamed).append(entry)
+
+            controls = named + unnamed
+            truncated = len(controls) > max_controls
+            controls = controls[:max_controls]
+            if truncated:
+                self._log(f"list_controls truncated to {max_controls} (had more) — prefer typing a filter/search query first to narrow the visible list before dumping again")
             return controls
         except Exception as e:
             self._log(f"list_controls failed: {e}")
@@ -453,6 +475,42 @@ class AutomationEngine:
                     return best
             except Exception as e:
                 self._log(f"Partial text/descendant search failed: {e}")
+
+        # No name was given at all (e.g. only control_type/class_name), so every
+        # attempt above that hit multiple matches was rejected as ambiguous
+        # rather than actually "not found". Scan descendants ourselves and, if
+        # there's exactly one visible candidate, just use it — otherwise raise
+        # an error that lists the real candidate names so the caller can retry
+        # with a specific controlText/itemName instead of guessing blindly.
+        if not name and (control_type or class_name):
+            self._log("No name given — scanning descendants for control_type/class_name candidates")
+            try:
+                candidates = []
+                for d in win.descendants():
+                    if control_type and d.element_info.control_type != control_type:
+                        continue
+                    if class_name and class_name.lower() not in (d.element_info.class_name or "").lower():
+                        continue
+                    candidates.append(d)
+
+                if len(candidates) == 1:
+                    self._log("Exactly one control_type/class_name candidate — using it")
+                    return candidates[0]
+
+                if len(candidates) > 1:
+                    named = [(d.window_text() or "").strip() for d in candidates]
+                    named = [t for t in named if t]
+                    preview = ", ".join(repr(t) for t in named[:15])
+                    raise AutomationError(
+                        f"Ambiguous match: {len(candidates)} controls found for "
+                        f"control_type={control_type!r} class_name={class_name!r} with no name/controlText "
+                        f"to disambiguate. Candidate names include: {preview}. "
+                        f"Retry with controlText (or itemName for selectItem) set to the exact name of the one you want."
+                    )
+            except AutomationError:
+                raise
+            except Exception as e:
+                self._log(f"Descendant scan for control_type/class_name failed: {e}")
 
         raise AutomationError(
             f"No control found for name={name!r} auto_id={auto_id!r} "

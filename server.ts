@@ -13,7 +13,7 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "25mb" }));
 
 // ---------------------------------------------------------------------------
 // Local, offline speech-to-text via whisper.cpp (no API key, no rate limits).
@@ -303,7 +303,11 @@ WEB VS APP:
 24. For opening a website (e.g. "open YouTube", "open Google", "open GitHub", "open reddit"), ALWAYS call web.open with the full URL. Do NOT call apps.searchAndOpen for website names — that tool is for actual desktop applications only.
 
 DESKTOP APP UI AUTOMATION (pywinauto):
-25. For interacting with any open desktop app (click buttons, type in fields), first call desktop.listWindows to find the window title, then desktop.dumpControls to inspect its UI elements, then desktop.clickControl or desktop.typeControl to interact. This works on any Win32 or UWP app.`;
+25. For interacting with any open desktop app (click buttons, type in fields), first call desktop.listWindows to find the window title, then desktop.dumpControls to inspect its UI elements, then desktop.clickControl or desktop.typeControl to interact. This works on any Win32 or UWP app.
+26. CRITICAL: controlType alone is NEVER enough to click something. Windows like Slack, Teams, and VS Code have dozens of controls sharing the same controlType (e.g. many "TreeItem"/"ListItem" entries in a sidebar). ALWAYS pass controlText (or autoId) set to the exact visible name of the item you read from the most recent desktop.dumpControls output — never call clickControl/selectItem with only controlType/className and no controlText/autoId, it will fail as ambiguous.
+27. For selecting an entry out of a list, tree, or combo box — e.g. a Slack channel/DM, a search/quick-switcher result, a dropdown option — prefer desktop.selectItem over desktop.clickControl. Pass windowTitle, the container's controlType/className if known, and itemName set to the exact text of the entry (read it from dumpControls first, e.g. after typing into a filter/search box, dump controls again and copy the matching item's exact name into itemName).
+28. If a click/select call fails with an error, do NOT just repeat desktop.listWindows or start the whole flow over. Read the error: if it says a control is ambiguous or lists multiple candidates, immediately retry the SAME click/select call with a more specific controlText/itemName drawn from the last dumpControls output — don't burn rounds re-discovering windows you already found.
+29. To SEND a message in a chat app (Slack, Teams, Discord, etc.) after typing it into the compose box with desktop.typeControl: press Enter, do NOT hunt for a "Send" button. Call desktop.sendKeysToControl with key="{ENTER}" and the SAME windowTitle/controlText/autoId you just typed into, so focus is still in the compose box. Icon-only send buttons frequently have no reliable accessible name to click, and Enter is the standard send shortcut in every major chat app by default. Only try clicking an actual send button as a fallback if the user tells you Enter didn't work (e.g. their app is configured to require Cmd/Ctrl+Enter to send and Enter alone just inserts a newline).`;
 
 
     const response = await ai.models.generateContent({
@@ -361,6 +365,24 @@ app.get("/api/assemblyai/token", async (req, res) => {
   return res.status(503).json({
     error: "AssemblyAI realtime token service is unavailable in this build. Browser speech recognition is used instead.",
   });
+});
+
+// Catch-all JSON error handler. Must be registered after all routes (Express
+// dispatches errors from any earlier middleware, including express.json(),
+// to whichever error-handling middleware — 4 args — is registered later in
+// the stack). Without this, a body-parser error like "payload too large"
+// falls through to Express's default HTML error page, and the client's
+// `await response.json()` on the /api/chat call throws a confusing
+// "Unexpected token '<'" instead of a readable message.
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled request error:", err);
+  const status = err?.status || err?.statusCode || 500;
+  const message =
+    err?.type === "entity.too.large"
+      ? "Request payload was too large (likely a huge tool result, e.g. a full UI control dump). Try a more targeted tool call."
+      : err?.message || "Internal server error.";
+  if (res.headersSent) return next(err);
+  res.status(status).json({ error: message });
 });
 
 async function startServer() {
