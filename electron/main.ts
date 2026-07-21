@@ -1,11 +1,12 @@
 import dotenv from "dotenv";
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import http from "http";
 import { fork, ChildProcess } from "child_process";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { openUrlInMediaWindow } from "./mediaWindow";
 import { browserManager } from "./browser/BrowserManager";
+import { voiceManager } from "./voice";
 import "./tools"; // side-effect: registers every tool module into the registry
 import "./tools/audio";
 
@@ -298,6 +299,25 @@ app.whenReady().then(() => {
     console.error("[JARVIC] Failed to launch the browser:", err);
   });
 
+  // Start the Hybrid Speech Recognition system: local wake-word listener
+  // (always-on, fully offline) + the Browser Speech WebSocket bridge
+  // (a real Chrome/Edge tab can connect to it for higher-accuracy
+  // recognition; JARVIC automatically falls back to fully-offline
+  // recognition whenever it isn't connected). See electron/voice/.
+  voiceManager.start().then(() => {
+    // Auto-open the Browser Speech bridge page in the system's real
+    // Chrome/Edge once at startup (Electron's own Chromium has no working
+    // Web Speech backend, so this page has to run in a real browser tab).
+    // Skipped entirely in OFFLINE mode, since it'd never be used there.
+    if (voiceManager.getSpeechMode() !== "OFFLINE") {
+      shell.openExternal(voiceManager.getBrowserSpeechUrl()).catch((err) => {
+        console.error("[JARVIC] Failed to auto-open the Browser Speech bridge page:", err);
+      });
+    }
+  }).catch((err) => {
+    console.error("[JARVIC] Failed to start the voice system:", err);
+  });
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -311,20 +331,21 @@ app.on("window-all-closed", () => {
   }
 });
 
-// Close JARVIC's browser gracefully before the app actually exits. We
-// preventDefault() once so the async shutdown can finish, then quit for real.
+// Close JARVIC's browser and voice system gracefully before the app
+// actually exits. We preventDefault() once so the async shutdown can
+// finish, then quit for real.
 let quittingAfterBrowserShutdown = false;
 app.on("before-quit", (event) => {
   destroyMiniWidget();
   stopBundledServer();
 
-  if (!quittingAfterBrowserShutdown && browserManager.isRunning()) {
+  if (!quittingAfterBrowserShutdown) {
     event.preventDefault();
     quittingAfterBrowserShutdown = true;
-    browserManager
-      .shutdown()
-      .catch((err) => console.error("[JARVIC] Error shutting down the browser:", err))
-      .finally(() => app.quit());
+    Promise.all([
+      browserManager.shutdown().catch((err) => console.error("[JARVIC] Error shutting down the browser:", err)),
+      voiceManager.stop().catch((err) => console.error("[JARVIC] Error stopping the voice system:", err)),
+    ]).finally(() => app.quit());
   }
 });
 
