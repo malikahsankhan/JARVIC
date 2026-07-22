@@ -54,6 +54,9 @@ export class SpeechRouter extends EventEmitter {
     this.browserEngine.on("partial", (text: string) => {
       if (this.activeSource() === "browser") this.emit("partial", text);
     });
+    this.browserEngine.on("speech-start", () => {
+      if (this.activeSource() === "browser") this.emit("speech-start");
+    });
 
     // The offline engine's stream always flows through separately for
     // wake-word purposes (see VoiceManager), but it's also the router's

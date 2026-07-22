@@ -31,7 +31,14 @@ export function notifyInterruptSpeaking(): void {
   notifyRenderer("speech-start");
 }
 
+/** Send live interim transcript to the renderer UI. */
+export function notifyPartialTranscript(text: string): void {
+  notifyRenderer("partial-transcript", text);
+}
+
 /** Hand a finished, final transcript to the AI planner via the existing renderer bridge. */
 export function notifyFinalTranscript(text: string): void {
   notifyRenderer("final-transcript", text);
 }
+
+

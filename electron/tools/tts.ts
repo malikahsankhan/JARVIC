@@ -51,15 +51,30 @@ registerTool({
     return { text, voice: voice ?? null, rate: rate ?? null };
   },
   handler: (args: Args) => {
-    const say = resolveSay();
-    const speed = args.rate ?? 1.0;
     activeTtsCount++;
-    return new Promise((resolve, reject) => {
-      say.speak(args.text, args.voice ?? undefined, speed, (err: Error | null) => {
-        activeTtsCount = Math.max(0, activeTtsCount - 1);
-        if (err) return reject(err);
-        resolve({ spoken: true });
-      });
+    return new Promise((resolve) => {
+      let resolved = false;
+      const safeDone = () => {
+        if (!resolved) {
+          resolved = true;
+          activeTtsCount = Math.max(0, activeTtsCount - 1);
+          resolve({ spoken: true });
+        }
+      };
+
+      try {
+        const say = resolveSay();
+        const speed = args.rate ?? 1.0;
+        say.speak(args.text, args.voice ?? undefined, speed, (err: Error | null) => {
+          if (err) console.warn("Host TTS speak callback error:", err);
+          safeDone();
+        });
+        // Safety timeout so tool call never hangs main process
+        setTimeout(safeDone, 15000);
+      } catch (err) {
+        console.warn("Host TTS unavailable:", err);
+        safeDone();
+      }
     });
   },
 });

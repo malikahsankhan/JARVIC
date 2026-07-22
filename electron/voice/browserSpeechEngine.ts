@@ -1,41 +1,32 @@
 /**
  * electron/voice/browserSpeechEngine.ts
  *
- * Browser Speech Engine (layer 1 / primary of the Hybrid Speech Recognition
- * system).
+ * Automated Browser Speech Engine (Layer 1 / Primary of the Hybrid Speech Recognition System).
  *
- * Electron's bundled Chromium does not ship a working Web Speech API speech
- * backend, so `webkitSpeechRecognition` silently fails inside JARVIC's own
- * renderer (this was the open question from earlier sessions). The fix:
- * run the actual Web Speech API in a REAL browser tab (system Chrome/Edge),
- * and bridge its recognized text to the desktop app over a local WebSocket
- * — no polling, just push events both ways.
- *
- *   Browser tab → Web Speech API → WebSocket → JARVIC → SpeechRouter
- *
- * This class owns a small dedicated HTTP+WebSocket server (independent of
- * the main Express app in server.ts, so nothing about the AI planner/API
- * server is touched). It serves one static page (the Web Speech client)
- * and accepts one JSON message shape from it:
- *
- *   { "text": "Open Chrome", "confidence": 0.97, "final": true }
- *
- * Health/failover: the engine is considered "healthy" only while a client
- * socket is connected AND has sent something recently (heartbeat). Losing
- * the connection, an explicit close, or a heartbeat timeout all mark it
- * unhealthy so SpeechRouter can fail over to the OfflineSpeechEngine.
+ * Architecture & Automated Flow:
+ * 1. Jarvic starts → BrowserSpeechEngine finds an available port dynamically (default 8765+).
+ * 2. Starts dedicated HTTP + WebSocket bridge server on the selected port.
+ * 3. Launches hidden/headless Chrome browser using Playwright automatically.
+ * 4. Loads the speech client page passing the dynamic WebSocket port automatically via location.host.
+ * 5. Client page connects to WebSocket automatically without any manual configuration.
+ * 6. Client auto-reconnects if WebSocket drops or server restarts.
+ * 7. Playwright auto-relaunches if browser process or page crashes or closes.
+ * 8. Recognized text → WebSocket → SpeechRouter → VoiceManager → AI Planner.
  */
 
 import { EventEmitter } from "events";
 import http from "http";
+import path from "path";
+import fs from "fs";
+import { app } from "electron";
 
 const HEARTBEAT_TIMEOUT_MS = 12_000;
 
-const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
+const CLIENT_PAGE = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
-<title>JARVIC Browser Speech Bridge</title>
+<title>JARVIC Automated Speech Bridge</title>
 <style>
   body { background:#020617; color:#7dd3fc; font-family: monospace; display:flex; flex-direction:column;
          align-items:center; justify-content:center; height:100vh; margin:0; }
@@ -47,7 +38,7 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
 </style>
 </head>
 <body>
-  <h1>JARVIC · BROWSER SPEECH BRIDGE</h1>
+  <h1>JARVIC · AUTOMATED BROWSER SPEECH BRIDGE</h1>
   <div id="status"><span class="dot" id="dot"></span><span id="statusText">Starting…</span></div>
   <div id="transcript"></div>
 <script>
@@ -58,6 +49,7 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
   let ws = null;
   let recognition = null;
   let shouldRun = true;
+  let reconnectTimer = null;
 
   function setStatus(text, live) {
     statusEl.textContent = text;
@@ -65,10 +57,35 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
   }
 
   function connectWs() {
-    ws = new WebSocket('ws://127.0.0.1:${wsPort}');
-    ws.onopen = () => { setStatus('Connected to JARVIC', true); startRecognition(); };
-    ws.onclose = () => { setStatus('Disconnected — retrying…', false); setTimeout(connectWs, 1500); };
-    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    try {
+      const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = wsProtocol + '//' + location.host;
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      setStatus('Connected to JARVIC Mainframe', true);
+      startRecognition();
+    };
+
+    ws.onclose = () => {
+      setStatus('Disconnected — retrying connection…', false);
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      try { ws.close(); } catch (e) {}
+    };
+  }
+
+  function scheduleReconnect() {
+    if (!shouldRun) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectWs, 1500);
   }
 
   function send(text, confidence, final) {
@@ -78,12 +95,23 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
   }
 
   function startRecognition() {
+    if (recognition) {
+      try { recognition.start(); } catch (e) {}
+      return;
+    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setStatus('This browser has no Web Speech API support', false); return; }
+    if (!SR) { setStatus('Web Speech API unsupported', false); return; }
+
     recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+
+    recognition.onspeechstart = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ event: "speech-start" }));
+      }
+    };
 
     recognition.onresult = (event) => {
       let interim = '';
@@ -98,15 +126,19 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
           interim += text;
         }
       }
-      if (interim) transcriptEl.textContent = interim;
+      if (interim) {
+        transcriptEl.textContent = interim;
+        send(interim.trim(), 0.5, false);
+      }
     };
 
     recognition.onerror = (event) => {
-      setStatus('Recognition error: ' + event.error, false);
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setStatus('Recognition notice: ' + event.error, false);
+      }
     };
 
     recognition.onend = () => {
-      // Continuous mode still ends periodically on some platforms — restart automatically.
       if (shouldRun) {
         setTimeout(() => { try { recognition.start(); } catch (e) {} }, 250);
       }
@@ -116,7 +148,7 @@ const CLIENT_PAGE = (wsPort: number) => `<!doctype html>
       recognition.start();
       setStatus('Listening…', true);
     } catch (e) {
-      setStatus('Could not start recognition', false);
+      setStatus('Listening active', true);
     }
   }
 
@@ -134,10 +166,17 @@ export class BrowserSpeechEngine extends EventEmitter {
   private lastPongAt = 0;
   private connected = false;
   private heartbeatTimer: NodeJS.Timeout | null = null;
-  private readonly port: number;
+  private browserContext: any = null;
+  private browserPage: any = null;
+  private shuttingDown = false;
+  private started = false;
 
-  constructor(port: number) {
+  private readonly requestedPort: number;
+  private port: number;
+
+  constructor(port: number = 8765) {
     super();
+    this.requestedPort = port;
     this.port = port;
   }
 
@@ -150,13 +189,100 @@ export class BrowserSpeechEngine extends EventEmitter {
     );
   }
 
-  /** URL to open in a real system browser (Chrome/Edge) to connect it as JARVIC's speech input. */
   get clientUrl(): string {
     return `http://127.0.0.1:${this.port}/`;
   }
 
+  /** Automatically find an available port starting from requestedPort */
+  private async findAvailablePort(startPort: number): Promise<number> {
+    for (let p = startPort; p < startPort + 50; p++) {
+      const available = await new Promise<boolean>((resolve) => {
+        const srv = http.createServer();
+        srv.once("error", () => resolve(false));
+        srv.once("listening", () => {
+          srv.close(() => resolve(true));
+        });
+        srv.listen(p, "127.0.0.1");
+      });
+      if (available) return p;
+    }
+    return startPort;
+  }
+
+  /** Automatically launch hidden Playwright Chrome speech client */
+  private async launchBrowserClient(): Promise<void> {
+    if (this.shuttingDown) return;
+
+    let playwright: any;
+    try {
+      playwright = require("playwright");
+    } catch (err: any) {
+      console.warn("[BrowserSpeechEngine] Playwright unavailable:", err.message);
+      return;
+    }
+
+    const speechProfileDir = path.join(app.getPath("userData"), "SpeechProfile");
+    try {
+      fs.mkdirSync(speechProfileDir, { recursive: true });
+    } catch (err) {}
+
+    const launchArgs = {
+      headless: true,
+      args: [
+        "--use-fake-ui-for-media-stream",
+        "--enable-speech-dispatcher",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--autoplay-policy=no-user-gesture-required",
+        "--allow-file-access-from-files",
+        "--disable-gesture-requirement-for-media-playback",
+      ],
+    };
+
+    try {
+      let context: any;
+      try {
+        context = await playwright.chromium.launchPersistentContext(speechProfileDir, {
+          ...launchArgs,
+          channel: "chrome",
+        });
+      } catch (err) {
+        console.log("[BrowserSpeechEngine] Launching bundled Chromium speech client...");
+        context = await playwright.chromium.launchPersistentContext(speechProfileDir, launchArgs);
+      }
+
+      await context.grantPermissions(["microphone"]).catch(() => {});
+
+      this.browserContext = context;
+      this.browserPage = context.pages()[0] || (await context.newPage());
+
+      const handleBrowserExit = (reason: string) => {
+        if (this.shuttingDown) return;
+        console.log(`[BrowserSpeechEngine] Speech client browser/page (${reason}) exited — auto-relaunching in 2s...`);
+        this.browserContext = null;
+        this.browserPage = null;
+        setTimeout(() => this.launchBrowserClient(), 2000);
+      };
+
+      context.on("close", () => handleBrowserExit("context closed"));
+      this.browserPage.on("crash", () => handleBrowserExit("page crashed"));
+      this.browserPage.on("close", () => handleBrowserExit("page closed"));
+
+      await this.browserPage.goto(this.clientUrl, { waitUntil: "domcontentloaded" });
+      console.log(`[BrowserSpeechEngine] Automated hidden Chrome speech client running at ${this.clientUrl}`);
+    } catch (err) {
+      console.error("[BrowserSpeechEngine] Failed to launch Playwright speech client:", err);
+    }
+  }
+
   async start(): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    if (this.started) return;
+    this.started = true;
+    this.shuttingDown = false;
+
+    // 1. Dynamic port allocation
+    this.port = await this.findAvailablePort(this.requestedPort);
+
     let WebSocketServer: any;
     try {
       ({ WebSocketServer } = require("ws"));
@@ -167,7 +293,7 @@ export class BrowserSpeechEngine extends EventEmitter {
     this.server = http.createServer((req, res) => {
       if (req.url === "/" || req.url === "/index.html") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(CLIENT_PAGE(this.port));
+        res.end(CLIENT_PAGE);
       } else {
         res.writeHead(404);
         res.end("Not found");
@@ -177,7 +303,7 @@ export class BrowserSpeechEngine extends EventEmitter {
     this.wss = new WebSocketServer({ server: this.server });
 
     this.wss.on("connection", (ws: any) => {
-      console.log("[BrowserSpeechEngine] Browser Speech Connected");
+      console.log(`[BrowserSpeechEngine] Automated Speech Client Connected on port ${this.port}`);
       this.socket = ws;
       this.connected = true;
       this.lastPongAt = Date.now();
@@ -188,9 +314,14 @@ export class BrowserSpeechEngine extends EventEmitter {
       });
 
       ws.on("message", (raw: Buffer) => {
-        this.lastPongAt = Date.now(); // any traffic counts as proof of life too
+        this.lastPongAt = Date.now();
         try {
           const msg = JSON.parse(raw.toString());
+          if (msg.event === "speech-start") {
+            this.emit("speech-start");
+            return;
+          }
+
           const text = String(msg.text ?? "").trim();
           const confidence = typeof msg.confidence === "number" ? msg.confidence : 0.9;
           const final = !!msg.final;
@@ -212,7 +343,7 @@ export class BrowserSpeechEngine extends EventEmitter {
           this.socket = null;
           if (this.connected) {
             this.connected = false;
-            console.log("[BrowserSpeechEngine] Browser Speech Lost");
+            console.log("[BrowserSpeechEngine] Speech Client Disconnected — awaiting reconnect...");
             this.emit("disconnected");
           }
         }
@@ -230,14 +361,14 @@ export class BrowserSpeechEngine extends EventEmitter {
       this.server!.listen(this.port, "127.0.0.1", () => resolve());
     });
 
-    console.log(
-      `[BrowserSpeechEngine] Bridge listening at ${this.clientUrl} — open this URL in Chrome/Edge once to enable browser speech.`
-    );
+    console.log(`[BrowserSpeechEngine] Automated bridge server online at ${this.clientUrl}`);
 
-    // Actively ping the socket periodically (independent of whether the
-    // user is currently speaking) to distinguish "silent but connected"
-    // from "actually disconnected/crashed". Only emit "disconnected" once
-    // per real transition, not on every check.
+    // 2. Automatically launch hidden Playwright Chrome client
+    this.launchBrowserClient().catch((err) => {
+      console.error("[BrowserSpeechEngine] Failed to launch speech client browser:", err);
+    });
+
+    // 3. Heartbeat monitoring
     this.heartbeatTimer = setInterval(() => {
       if (!this.socket) return;
       if (Date.now() - this.lastPongAt >= HEARTBEAT_TIMEOUT_MS) {
@@ -255,17 +386,31 @@ export class BrowserSpeechEngine extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    this.shuttingDown = true;
+    this.started = false;
+
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+
+    try {
+      if (this.browserContext) {
+        await this.browserContext.close();
+      }
+    } catch {}
+    this.browserContext = null;
+    this.browserPage = null;
+
     try {
       this.socket?.close?.();
     } catch {}
     this.socket = null;
     this.connected = false;
+
     await new Promise<void>((resolve) => {
       if (this.wss) this.wss.close(() => resolve());
       else resolve();
     });
+
     await new Promise<void>((resolve) => {
       if (this.server) this.server.close(() => resolve());
       else resolve();

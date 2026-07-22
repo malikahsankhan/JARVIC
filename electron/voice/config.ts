@@ -1,16 +1,15 @@
 /**
  * electron/voice/config.ts
  *
- * Hybrid Speech Recognition configuration. Reads overrides from environment
- * variables (so it's configurable the same way the rest of JARVIC is, via
- * .env / electron-builder env), falling back to sensible defaults.
+ * Speech Recognition configuration. Reads overrides from environment
+ * variables, defaulting to BROWSER mode (no local Whisper execution).
  */
 
 import type { VoiceConfig, SpeechMode } from "./types";
 
 function envSpeechMode(): SpeechMode {
-  const raw = (process.env.JARVIC_SPEECH_MODE || "AUTO").toUpperCase();
-  return raw === "BROWSER" || raw === "OFFLINE" ? raw : "AUTO";
+  const raw = (process.env.JARVIC_SPEECH_MODE || "BROWSER").toUpperCase();
+  return raw === "OFFLINE" ? "OFFLINE" : "BROWSER";
 }
 
 function envInt(name: string, fallback: number): number {

@@ -303,17 +303,8 @@ app.whenReady().then(() => {
   // (a real Chrome/Edge tab can connect to it for higher-accuracy
   // recognition; JARVIC automatically falls back to fully-offline
   // recognition whenever it isn't connected). See electron/voice/.
-  voiceManager.start().then(() => {
-    // Auto-open the Browser Speech bridge page in the system's real
-    // Chrome/Edge once at startup (Electron's own Chromium has no working
-    // Web Speech backend, so this page has to run in a real browser tab).
-    // Skipped entirely in OFFLINE mode, since it'd never be used there.
-    if (voiceManager.getSpeechMode() !== "OFFLINE") {
-      shell.openExternal(voiceManager.getBrowserSpeechUrl()).catch((err) => {
-        console.error("[JARVIC] Failed to auto-open the Browser Speech bridge page:", err);
-      });
-    }
-  }).catch((err) => {
+  // Start the Voice System quietly without launching external tabs
+  voiceManager.start().catch((err) => {
     console.error("[JARVIC] Failed to start the voice system:", err);
   });
 

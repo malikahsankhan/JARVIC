@@ -149,6 +149,7 @@ export default function App() {
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const recognitionRef = useRef<any>(null);
   const shouldAutoRestartRef = useRef(false);
+  const restartTimeoutRef = useRef<any>(null);
   const assemblyWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<any>(null);
@@ -244,70 +245,181 @@ export default function App() {
     };
   }, [cameraStream]);
 
-  // Initialize Speech Synthesis and Speech Recognition APIs safely
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const rec = new SpeechRecognition();
-        rec.continuous = false;
-        rec.interimResults = true;
-        rec.lang = "en-US";
-
-        rec.onstart = () => {
-          shouldAutoRestartRef.current = true;
-          setVoiceRecognitionActive(true);
-          setJarvicState("listening");
-          addLog(">> [JARVIC] Aural intake channels fully deployed. Speak now, Sir.");
-          playSound("beep");
-        };
-
-        rec.onresult = (event: any) => {
-          const results = Array.from(event.results || []) as ArrayLike<any>;
-          const list = Array.from(results as any[]);
-          const transcript = list.map((result: any) => result[0]?.transcript ?? "").join(" ").trim();
-          const finalResult = list[list.length - 1] as any;
-
-          if (finalResult?.isFinal) {
-            setLivePartial(null);
-            addLog(`>> User (Aural): "${transcript}"`);
-            handleSendMessage(transcript);
-          } else if (transcript) {
-            setLivePartial(transcript);
-          }
-        };
-
-        rec.onerror = (event: any) => {
-          shouldAutoRestartRef.current = false;
-          console.error("Speech Recognition Error:", event.error);
-          setVoiceRecognitionActive(false);
-          setJarvicState("idle");
-          const message = event?.error === "network"
-            ? "Speech recognition network issue. Please check your browser microphone permission and connection, then try again."
-            : `Aural channel error: ${event.error}`;
-          addLog(`>> [WARNING] ${message}`);
-          playSound("warning");
-        };
-
-        rec.onend = () => {
-          if (shouldAutoRestartRef.current) {
-            window.setTimeout(() => {
-              try {
-                rec.start();
-              } catch (err) {
-                console.warn("Speech recognition restart failed", err);
-              }
-            }, 250);
-            return;
-          }
-
-          setVoiceRecognitionActive(false);
-          setJarvicState("idle");
-        };
-
-        recognitionRef.current = rec;
-      }
+  // Cancel any ongoing speech synthesis output immediately (Interruption/Barge-in)
+  const cancelSpeech = () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
     }
+    if (typeof window !== "undefined" && (window as any).jarvic?.invokeTool) {
+      try {
+        (window as any).jarvic.invokeTool("system.tts.stop").catch(() => {});
+      } catch (e) {}
+    }
+  };
+
+  // Helper to filter non-speech environmental noise artifacts (coughing, birds, door shut, etc.)
+  const sanitizeVoiceInput = (rawText: string): string => {
+    if (!rawText) return "";
+    const trimmed = rawText.trim();
+    if (!trimmed) return "";
+
+    // Entirely enclosed in brackets e.g. (coughing), [door shut], *birds chirping*
+    if (/^[\(\[\*].*[\)\]\*]$/.test(trimmed)) return "";
+
+    const noisePhrases = [
+      "cough", "coughing", "clear throat", "clears throat", "throat clearing", "sneeze", "sneezing",
+      "birds chirping", "bird chirping", "birds singing", "chirp", "chirping",
+      "door opening", "door opens", "door shut", "door shutting", "door closing", "door closes", "door slamming",
+      "laughter", "laughing", "chuckle", "giggle", "snicker",
+      "applause", "clapping", "cheering",
+      "sigh", "sighing", "gasp", "groan", "grunt", "snort", "yawn",
+      "heavy breathing", "panting", "whispering",
+      "dog barking", "barking", "meow", "meowing",
+      "music", "dramatic music", "background noise", "ambient noise", "static", "buzzing", "footsteps", "typing", "keyboard",
+      "uh", "um", "hmm", "hm", "mhm", "ah", "huh", "shh", "shhh", "tck", "tch", "er", "ur", "ew", "ooh", "aah",
+      "thank you for watching", "thanks for watching", "subtitles by", "amara.org"
+    ];
+
+    const cleanLower = trimmed.toLowerCase().replace(/[\.\!\?\,]/g, "");
+    for (const phrase of noisePhrases) {
+      if (cleanLower === phrase) return "";
+    }
+
+    let cleaned = rawText
+      .replace(/[\(\[\*][^\)\}\*]*[\)\]\*]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const checkCleanedLower = cleaned.toLowerCase().replace(/[\.\!\?\,]/g, "");
+    for (const phrase of noisePhrases) {
+      if (checkCleanedLower === phrase) return "";
+    }
+
+    if (cleaned.length <= 1) return "";
+
+    return cleaned;
+  };
+
+  // Helper to initialize browser speech recognition instance safely
+  const initSpeechRecognition = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = "en-US";
+
+      rec.onstart = () => {
+        shouldAutoRestartRef.current = true;
+        setVoiceRecognitionActive(true);
+        setJarvicState("listening");
+        addLog(">> [JARVIC] Browser Voice recognition channel active. Speak now, Sir.");
+        playSound("beep");
+      };
+
+      const handleInterruption = () => {
+        if (typeof window !== "undefined" && window.speechSynthesis && window.speechSynthesis.speaking) {
+          cancelSpeech();
+          setJarvicState("listening");
+          addLog(">> [JARVIC] Vocal response interrupted by user speech. Listening...");
+        }
+      };
+
+      rec.onspeechstart = () => {
+        handleInterruption();
+      };
+
+      rec.onsoundstart = () => {
+        handleInterruption();
+      };
+
+      rec.onresult = (event: any) => {
+        handleInterruption();
+
+        let interimText = "";
+        let latestFinalText = "";
+
+        const startIndex = event.resultIndex ?? 0;
+        for (let i = startIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            latestFinalText += (res[0]?.transcript ?? "") + " ";
+          } else {
+            interimText += (res[0]?.transcript ?? "") + " ";
+          }
+        }
+
+        latestFinalText = latestFinalText.trim();
+        interimText = interimText.trim();
+
+        if (latestFinalText) {
+          const finalChunk = sanitizeVoiceInput(latestFinalText);
+          if (finalChunk) {
+            setLivePartial(null);
+            addLog(`>> User (Aural): "${finalChunk}"`);
+            handleSendMessage(finalChunk);
+          } else {
+            setLivePartial(null);
+          }
+        } else if (interimText) {
+          const cleanPartial = sanitizeVoiceInput(interimText);
+          setLivePartial(cleanPartial || null);
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        if (event.error === "no-speech") {
+          return;
+        }
+        if (event.error === "aborted" && shouldAutoRestartRef.current) {
+          return;
+        }
+        console.warn("Browser Speech Recognition Notice:", event.error);
+
+        shouldAutoRestartRef.current = false;
+        if (restartTimeoutRef.current) {
+          clearTimeout(restartTimeoutRef.current);
+          restartTimeoutRef.current = null;
+        }
+        try { rec.stop(); } catch {}
+        setVoiceRecognitionActive(false);
+        setJarvicState("idle");
+        addLog(`>> [WARNING] Browser Speech Recognition notice: ${event.error}`);
+      };
+
+      rec.onend = () => {
+        if (shouldAutoRestartRef.current) {
+          if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+          restartTimeoutRef.current = window.setTimeout(() => {
+            if (shouldAutoRestartRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (err) {
+                console.warn("Speech recognition restart skipped", err);
+              }
+            }
+          }, 150);
+          return;
+        }
+
+        setVoiceRecognitionActive(false);
+        setJarvicState("idle");
+      };
+
+      recognitionRef.current = rec;
+    } catch (err) {
+      console.warn("Failed to instantiate SpeechRecognition:", err);
+    }
+  };
+
+  // Initialize Speech Recognition API safely on mount
+  useEffect(() => {
+    initSpeechRecognition();
   }, []);
 
   const addLog = (text: string) => {
@@ -382,127 +494,118 @@ export default function App() {
     }
   };
 
-  // Trigger JARVIC voice text-to-speech
+  // Trigger JARVIC voice text-to-speech using Browser Web Speech API
   const speakVoice = async (text: string) => {
     if (isMuted) return;
 
-    // Remove markdown symbols from speech
+    cancelSpeech();
+
+    // Clean markdown and length cap
     const cleanText = text
       .replace(/[*_#`~>]/g, "")
       .replace(/\[.*?\]\(.*?\)/g, "")
-      .substring(0, 1000); // safety cap
+      .substring(0, 1000);
 
-    // If running inside the Electron desktop app, use the native `say` tool in main process
-    try {
-      if (typeof window !== "undefined" && (window as any).jarvic && (window as any).jarvic.invokeTool) {
-        setJarvicState("speaking");
-        try {
-          (window as any).jarvic.invokeTool("system.tts.speak", { text: cleanText, rate: 1.0 }).finally(() => setJarvicState("idle"));
-          return;
-        } catch (err) {
-          // fall back to browser TTS
-        }
-      }
-    } catch (err) {
-      // fall back to browser TTS below
+    if (!cleanText.trim()) return;
+
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      addLog(">> [WARNING] Speech synthesis API unavailable in this browser environment.");
+      return;
     }
 
-    // Fallback: browser SpeechSynthesis
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-
     try {
-      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(cleanText);
       const voices = window.speechSynthesis.getVoices();
-      const britishVoice = voices.find((v) => v.lang.includes("GB") || v.name.toLowerCase().includes("british") || v.name.toLowerCase().includes("uk"));
+      const britishVoice = voices.find((v) => v.lang.includes("GB") || v.name.toLowerCase().includes("british") || v.name.toLowerCase().includes("uk") || v.name.toLowerCase().includes("george") || v.name.toLowerCase().includes("hazel"));
       const englishVoice = voices.find((v) => v.lang.startsWith("en"));
       if (britishVoice) {
         utterance.voice = britishVoice;
       } else if (englishVoice) {
         utterance.voice = englishVoice;
       }
-      utterance.rate = 1.05;
-      utterance.pitch = 0.95;
-      utterance.onstart = () => setJarvicState("speaking");
-      utterance.onend = () => setJarvicState("idle");
-      utterance.onerror = () => setJarvicState("idle");
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => {
+        setJarvicState("speaking");
+      };
+      utterance.onend = () => {
+        if (shouldAutoRestartRef.current) {
+          setJarvicState("listening");
+          if (recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {}
+          }
+        } else {
+          setJarvicState("idle");
+        }
+      };
+      utterance.onerror = () => {
+        if (shouldAutoRestartRef.current) {
+          setJarvicState("listening");
+        } else {
+          setJarvicState("idle");
+        }
+      };
+
       speechUtteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
     } catch (err) {
-      // ignore speech errors
+      console.error("Browser speech synthesis error:", err);
+      setJarvicState(shouldAutoRestartRef.current ? "listening" : "idle");
     }
   };
 
   const stopVoiceCapture = async () => {
-    shouldAutoRestartRef.current = false;
     setLivePartial(null);
     setDesktopListening(false);
-
-    if (activeVoiceMethodRef.current === "whisper") {
-      await stopWhisperCaptureAndTranscribe();
-      activeVoiceMethodRef.current = null;
-      return;
-    }
-
+    cancelSpeech();
     try {
-      recognitionRef.current?.stop?.();
+      if ((window as any).jarvic?.invokeTool) {
+        await (window as any).jarvic.invokeTool("system.audio.listen", { mode: "stop" });
+      }
     } catch (err) {
-      console.warn('Could not stop browser speech recognition', err);
+      console.warn("Could not stop voice capture", err);
     }
-
-    await stopRealtimeTranscription();
+    setVoiceRecognitionActive(false);
+    setJarvicState("idle");
     activeVoiceMethodRef.current = null;
   };
 
   // Toggle voice capture (speech recognition)
   const toggleVoiceCapture = () => {
     playSound("click");
-    if (voiceRecognitionActive) {
-      stopVoiceCapture().catch((err) => {
-        console.error('Voice stop error', err);
+    if ((window as any).jarvic?.invokeTool) {
+      (window as any).jarvic.invokeTool("system.audio.listen", { mode: "toggle" }).catch((err: any) => {
+        console.error("Voice toggle error", err);
+        addLog(">> [ERROR] Could not toggle voice capture: " + (err?.message ?? err));
       });
     } else {
-      startVoiceCapture().catch((err) => {
-        console.error('Voice start error', err);
-        addLog('>> [ERROR] Could not start voice capture: ' + (err?.message ?? err));
-        playSound('warning');
-      });
+      if (voiceRecognitionActive) {
+        stopVoiceCapture().catch((err) => console.error("Voice stop error", err));
+      } else {
+        startVoiceCapture().catch((err) => console.error("Voice start error", err));
+      }
     }
   };
 
   const startVoiceCapture = async () => {
-    // Primary path: whisper.cpp — fully local/offline, no API key, no rate limits.
+    cancelSpeech();
     try {
-      await startWhisperCapture();
-      activeVoiceMethodRef.current = "whisper";
-      return;
-    } catch (err: any) {
-      addLog(`>> [WARNING] Local whisper.cpp capture unavailable: ${err?.message ?? err}`);
-    }
-
-    // Fallback 1: AssemblyAI real-time transcription via WebSocket + AudioWorklet.
-    try {
-      await startRealtimeTranscription();
-      activeVoiceMethodRef.current = "assemblyai";
-      return;
-    } catch (err: any) {
-      addLog(`>> [WARNING] Real-time transcription unavailable: ${err?.message ?? err}`);
-    }
-
-    // Fallback 2: browser SpeechRecognition — usually fails inside Electron's
-    // Chromium (no built-in speech backend like real Chrome has), but cheap to try.
-    if (recognitionRef.current) {
-      try {
-        shouldAutoRestartRef.current = true;
-        recognitionRef.current.start();
+      if ((window as any).jarvic?.invokeTool) {
+        await (window as any).jarvic.invokeTool("system.audio.listen", { mode: "start" });
+        setVoiceRecognitionActive(true);
+        setJarvicState("listening");
         activeVoiceMethodRef.current = "browser";
         return;
-      } catch (err) {
-        addLog('>> [WARNING] Browser speech recognition could not start.');
       }
+    } catch (err: any) {
+      console.error("Could not start voice capture via tool", err);
     }
 
-    addLog('>> [WARNING] Speech capture is not available in this environment.');
+    setVoiceRecognitionActive(false);
+    setJarvicState("idle");
   };
 
   /** Encodes raw 16-bit PCM samples (mono) into a playable/readable WAV Blob. */
@@ -753,6 +856,8 @@ export default function App() {
   // Safe manual text entry processing
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
+
+    cancelSpeech();
 
     const query = text.trim();
     addLog(`$ ${query}`);
@@ -1054,7 +1159,7 @@ export default function App() {
           ...m,
           toolResults: m.toolResults.map((tr) => ({
             ...tr,
-            result: { ...tr.result, data: "[older tool output omitted to keep request size bounded]" },
+            result: typeof tr.result === "object" && tr.result !== null ? { ...(tr.result as Record<string, any>), data: "[older tool output omitted to keep request size bounded]" } : tr.result,
           })),
         };
       });
@@ -1177,8 +1282,15 @@ export default function App() {
             window.speechSynthesis?.cancel();
           } catch {}
           setJarvicState("listening");
+          setVoiceRecognitionActive(true);
+        } else if (data.event === "partial-transcript") {
+          const text = data.data ?? "";
+          setLivePartial(text || null);
+          setJarvicState("listening");
+          setVoiceRecognitionActive(true);
         } else if (data.event === "final-transcript") {
           const text = data.data ?? "";
+          setLivePartial(null);
           if (text.trim()) {
             handleSendMessageRef.current(text);
           }

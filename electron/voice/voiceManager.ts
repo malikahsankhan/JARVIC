@@ -1,36 +1,17 @@
 /**
  * electron/voice/voiceManager.ts
  *
- * VoiceManager — top-level orchestrator for JARVIC's Hybrid Speech
- * Recognition system.
- *
- *   VoiceManager
- *       │
- *       ▼
- *   SpeechRouter  (AUTO / BROWSER / OFFLINE)
- *       │
- *   BrowserSpeechEngine  ──┐
- *   OfflineSpeechEngine  ──┴──→ AI Planner (via existing "jarvic-audio-event"
- *                                IPC channel — unchanged renderer/UI code)
- *
- * State machine: IDLE → WAKE_WORD → LISTENING → PROCESSING → SPEAKING →
- * FOLLOW_UP → TIMEOUT → (back to WAKE_WORD).
- *
- * Wake-word detection always reads from OfflineSpeechEngine's continuous,
- * fully-local transcription stream — never from the browser, and never
- * gated behind SpeechRouter's mode. Once the wake word is heard, the
- * *command* that follows is captured through whichever engine SpeechRouter
- * currently considers authoritative (Browser preferred in AUTO, falling
- * back to Offline automatically on any Browser Speech failure).
+ * VoiceManager — top-level orchestrator for JARVIC's Browser Speech
+ * Recognition system and barge-in conversational flow.
  */
 
-import { isTtsSpeaking } from "../tools/tts";
-import { notifyFinalTranscript, notifyInterruptSpeaking } from "./notify";
-import { matchWakeWord } from "./wakeWord";
+import { isTtsSpeaking, stopTtsSpeaking } from "../tools/tts";
+import { notifyFinalTranscript, notifyInterruptSpeaking, notifyPartialTranscript } from "./notify";
 import { BrowserSpeechEngine } from "./browserSpeechEngine";
 import { OfflineSpeechEngine } from "./offlineSpeechEngine";
 import { SpeechRouter } from "./speechRouter";
 import { loadVoiceConfig } from "./config";
+import { sanitizeVoiceTranscript } from "./noiseFilter";
 import type { TranscriptResult, VoiceConfig, VoiceState } from "./types";
 
 export class VoiceManager {
@@ -40,7 +21,6 @@ export class VoiceManager {
   private readonly router: SpeechRouter;
 
   private state: VoiceState = "IDLE";
-  private followUpTimer: NodeJS.Timeout | null = null;
   private ttsWaitPoll: NodeJS.Timeout | null = null;
   private started = false;
 
@@ -48,7 +28,7 @@ export class VoiceManager {
     this.config = config;
     this.browserEngine = new BrowserSpeechEngine(config.browserPort);
     this.offlineEngine = new OfflineSpeechEngine();
-    this.router = new SpeechRouter(this.browserEngine, this.offlineEngine, config.speechMode);
+    this.router = new SpeechRouter(this.browserEngine, this.offlineEngine, "BROWSER");
     this.wire();
   }
 
@@ -56,17 +36,12 @@ export class VoiceManager {
     return this.state;
   }
 
-  setSpeechMode(mode: VoiceConfig["speechMode"]): void {
-    this.router.setMode(mode);
-  }
-
-  /** URL to open once in a real system browser (Chrome/Edge) to enable Browser Speech. */
   getBrowserSpeechUrl(): string {
     return this.browserEngine.clientUrl;
   }
 
   getSpeechMode(): VoiceConfig["speechMode"] {
-    return this.config.speechMode;
+    return "BROWSER";
   }
 
   private setState(next: VoiceState): void {
@@ -76,74 +51,99 @@ export class VoiceManager {
   }
 
   private wire(): void {
-    // Wake-word duty — always sourced from the local offline stream, in
-    // every SpeechMode, per the "never depend on the browser" requirement.
-    this.offlineEngine.on("transcript", (result: TranscriptResult) => {
-      this.handleOfflineUtterance(result);
+    this.router.on("speech-start", () => {
+      this.handleRoutedSpeechStart();
     });
 
-    // Command duty — whichever engine SpeechRouter currently trusts.
+    this.router.on("partial", (text: string) => {
+      this.handleRoutedPartial(text);
+    });
+
     this.router.on("transcript", (result: TranscriptResult) => {
       this.handleRoutedTranscript(result);
     });
   }
 
-  private handleOfflineUtterance(result: TranscriptResult): void {
-    const listeningForCommand = this.state === "LISTENING" || this.state === "FOLLOW_UP";
-    const activeSourceIsOffline = this.router.activeSource() === "offline";
-
-    if (listeningForCommand && activeSourceIsOffline) {
-      // The router will also re-emit this same result — let it own dispatch
-      // so a command is never handled twice.
-      return;
-    }
-
-    // Otherwise, this utterance is only relevant as a wake-word check —
-    // covers IDLE/WAKE_WORD/TIMEOUT (normal case) and also PROCESSING/
-    // SPEAKING (barge-in: user says the wake word while JARVIC is
-    // mid-response, per the Interruptible TTS requirement).
-    const { matched, remainder } = matchWakeWord(result.text, this.config.wakeWord);
-    if (!matched) return;
-
-    console.log("[VoiceManager] Wake Word Detected");
-
-    if (isTtsSpeaking()) {
-      console.log("[VoiceManager] Stopping TTS");
+  public startListening(): void {
+    console.log("[VoiceManager] Manual mic start — entering LISTENING mode.");
+    if (isTtsSpeaking() || this.state === "SPEAKING") {
+      console.log("[VoiceManager] Interrupting ongoing TTS playback for user speech.");
+      stopTtsSpeaking();
       notifyInterruptSpeaking();
     }
-    if (this.followUpTimer) {
-      clearTimeout(this.followUpTimer);
-      this.followUpTimer = null;
+    this.setState("LISTENING");
+    notifyInterruptSpeaking(); // Ensures renderer UI state switches to listening
+  }
+
+  public stopListening(): void {
+    console.log("[VoiceManager] Manual mic stop — returning to IDLE mode.");
+    this.setState("IDLE");
+    notifyPartialTranscript("");
+  }
+
+  public toggleListening(): void {
+    if (this.state === "LISTENING") {
+      this.stopListening();
+    } else {
+      this.startListening();
+    }
+  }
+
+  private handleRoutedSpeechStart(): void {
+    if (isTtsSpeaking() || this.state === "SPEAKING" || this.state === "PROCESSING") {
+      console.log("[VoiceManager] BARGE-IN: User started speaking while JARVIC was speaking/processing. Stopping TTS immediately!");
+      stopTtsSpeaking();
+      notifyInterruptSpeaking();
+      this.setState("LISTENING");
+    }
+  }
+
+  private handleRoutedPartial(text: string): void {
+    if (isTtsSpeaking() || this.state === "SPEAKING" || this.state === "PROCESSING") {
+      console.log("[VoiceManager] BARGE-IN: Partial speech detected during TTS/Processing. Stopping TTS!");
+      stopTtsSpeaking();
+      notifyInterruptSpeaking();
+      this.setState("LISTENING");
     }
 
-    this.setState("LISTENING");
-
-    if (remainder) {
-      // "Hey Jarvic, open Chrome" — act on the command in the same breath.
-      this.handleCommand(remainder);
+    const cleanText = sanitizeVoiceTranscript(text);
+    if (cleanText) {
+      if (this.state !== "LISTENING") {
+        this.setState("LISTENING");
+      }
+      notifyPartialTranscript(cleanText);
     }
   }
 
   private handleRoutedTranscript(result: TranscriptResult): void {
-    if (this.state !== "LISTENING" && this.state !== "FOLLOW_UP") return;
-    this.handleCommand(result.text);
+    const rawText = String(result?.text ?? "").trim();
+    const cleanText = sanitizeVoiceTranscript(rawText);
+    if (!cleanText) {
+      if (rawText) console.log(`[VoiceManager] Ignored environmental noise / artifact: "${rawText}"`);
+      return;
+    }
+
+    if (isTtsSpeaking() || this.state === "SPEAKING") {
+      console.log("[VoiceManager] BARGE-IN: Final transcript received while speaking. Stopping TTS.");
+      stopTtsSpeaking();
+      notifyInterruptSpeaking();
+    }
+
+    this.handleCommand(cleanText);
   }
 
   private handleCommand(text: string): void {
-    if (!text.trim()) return;
-    console.log(`[VoiceManager] Sending to AI: "${text}"`);
+    console.log(`[VoiceManager] Processing Final Command -> AI Planner: "${text}"`);
     this.setState("PROCESSING");
+    notifyPartialTranscript(""); // Clear live transcript
     notifyFinalTranscript(text);
-    this.armFollowUpAfterResponse();
+    this.monitorTtsResponse();
   }
 
   /**
-   * Waits for the AI's response to actually start (and finish) speaking —
-   * observed directly via tts.ts's isTtsSpeaking(), since TTS playback
-   * runs in this same main process — then enters FOLLOW_UP mode so the
-   * user can keep talking without repeating the wake word.
+   * Monitor TTS execution so VoiceManager tracks when JARVIC is speaking vs done speaking.
    */
-  private armFollowUpAfterResponse(): void {
+  private monitorTtsResponse(): void {
     if (this.ttsWaitPoll) clearInterval(this.ttsWaitPoll);
 
     const startedAt = Date.now();
@@ -158,20 +158,11 @@ export class VoiceManager {
       } else if (sawSpeaking || Date.now() - startedAt > maxWaitMs) {
         if (this.ttsWaitPoll) clearInterval(this.ttsWaitPoll);
         this.ttsWaitPoll = null;
-        this.enterFollowUp();
+        if (this.state === "SPEAKING" || this.state === "PROCESSING") {
+          this.setState("IDLE");
+        }
       }
-    }, 250);
-  }
-
-  private enterFollowUp(): void {
-    this.setState("FOLLOW_UP");
-    if (this.followUpTimer) clearTimeout(this.followUpTimer);
-    this.followUpTimer = setTimeout(() => {
-      this.setState("TIMEOUT");
-      console.log("[VoiceManager] Follow-up window elapsed — returning to Wake Word mode.");
-      this.setState("WAKE_WORD");
-      console.log("[VoiceManager] Waiting for Wake Word");
-    }, this.config.followUpTimeoutMs);
+    }, 200);
   }
 
   async start(): Promise<void> {
@@ -184,29 +175,19 @@ export class VoiceManager {
       console.error("[VoiceManager] Browser Speech bridge failed to start:", err);
     }
 
-    console.log("[VoiceManager] Starting Browser Speech");
-
-    try {
-      await this.offlineEngine.start();
-      console.log("[VoiceManager] Offline Recognition Started");
-    } catch (err) {
-      console.error("[VoiceManager] Offline Speech failed to start — wake word will be unavailable:", err);
-    }
-
-    this.setState("WAKE_WORD");
-    console.log("[VoiceManager] Waiting for Wake Word");
+    console.log("[VoiceManager] Browser Speech Recognition active & ready.");
+    this.setState("IDLE");
   }
 
   async stop(): Promise<void> {
     if (!this.started) return;
     this.started = false;
 
-    if (this.followUpTimer) clearTimeout(this.followUpTimer);
     if (this.ttsWaitPoll) clearInterval(this.ttsWaitPoll);
-    this.followUpTimer = null;
     this.ttsWaitPoll = null;
 
-    await Promise.all([this.browserEngine.stop(), this.offlineEngine.stop()]);
+    await this.browserEngine.stop();
     this.setState("IDLE");
   }
 }
+

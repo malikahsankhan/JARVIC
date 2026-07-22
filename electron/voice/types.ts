@@ -72,4 +72,5 @@ export interface SpeechEngine {
   isHealthy(): boolean;
   on(event: "transcript", cb: (result: TranscriptResult) => void): void;
   on(event: "partial", cb: (text: string) => void): void;
+  on(event: "speech-start", cb: () => void): void;
 }
