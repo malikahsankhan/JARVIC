@@ -14,6 +14,7 @@ export class VoiceWebSocketServer extends EventEmitter {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private lastSeenAt = 0;
   private selectedPort = 0;
+  private pendingCommand: BrowserSpeechCommand | null = null;
 
   constructor(private readonly requestedPort = 0, private readonly staticDir = __dirname) {
     super();
@@ -52,7 +53,13 @@ export class VoiceWebSocketServer extends EventEmitter {
   }
 
   send(command: BrowserSpeechCommand): void {
-    if (this.socket?.readyState === 1) this.socket.send(JSON.stringify(command));
+    if (this.socket?.readyState === 1) {
+      this.socket.send(JSON.stringify(command));
+      return;
+    }
+    if (command.type === "start" || command.type === "stop") {
+      this.pendingCommand = command;
+    }
   }
 
   async stop(): Promise<void> {
@@ -100,6 +107,10 @@ export class VoiceWebSocketServer extends EventEmitter {
     this.socket = ws;
     this.lastSeenAt = Date.now();
     this.emit("connected");
+    if (this.pendingCommand) {
+      ws.send(JSON.stringify(this.pendingCommand));
+      this.pendingCommand = null;
+    }
 
     ws.on("message", (raw: Buffer) => {
       this.lastSeenAt = Date.now();
