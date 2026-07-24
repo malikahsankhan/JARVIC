@@ -9,7 +9,7 @@ import { registerTool } from "../ipc/toolRegistry";
 // dist-electron — not electron/tools where desktop_automation.py actually
 // lives. Nothing copies the .py files there. Instead, resolve relative to
 // the app root (dev: project root; packaged: extraResources), same pattern
-// already used for whisper (see WHISPER_DIR in electron/main.ts).
+// shipped alongside the packaged app so Python can execute it outside asar.
 const PYTHON_SCRIPT_PATH = app.isPackaged
   ? path.join(process.resourcesPath, "automation", "desktop_automation.py")
   : path.join(app.getAppPath(), "electron", "tools", "desktop_automation.py");

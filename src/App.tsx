@@ -147,20 +147,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [voiceRecognitionActive, setVoiceRecognitionActive] = useState(false);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const shouldAutoRestartRef = useRef(false);
-  const restartTimeoutRef = useRef<any>(null);
-  const assemblyWsRef = useRef<WebSocket | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const workletNodeRef = useRef<any>(null);
-  const whisperChunksRef = useRef<ArrayBuffer[]>([]);
-  const whisperAudioCtxRef = useRef<AudioContext | null>(null);
-  const whisperNodeRef = useRef<{ node: AudioWorkletNode; stream: MediaStream } | null>(null);
-  const activeVoiceMethodRef = useRef<"whisper" | "assemblyai" | "browser" | null>(null);
   const [livePartial, setLivePartial] = useState<string | null>(null);
-  const [desktopListening, setDesktopListening] = useState(false);
-  const desktopStreamRef = useRef<any>(null);
-  const desktopAudioIntervalRef = useRef<number | null>(null);
 
   // Uplink active state and sandbox detection
   const [activeUplink, setActiveUplink] = useState<{ name: string; url: string } | null>(null);
@@ -302,126 +289,6 @@ export default function App() {
     return cleaned;
   };
 
-  // Helper to initialize browser speech recognition instance safely
-  const initSpeechRecognition = () => {
-    if (typeof window === "undefined") return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    try {
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.lang = "en-US";
-
-      rec.onstart = () => {
-        shouldAutoRestartRef.current = true;
-        setVoiceRecognitionActive(true);
-        setJarvicState("listening");
-        addLog(">> [JARVIC] Browser Voice recognition channel active. Speak now, Sir.");
-        playSound("beep");
-      };
-
-      const handleInterruption = () => {
-        if (typeof window !== "undefined" && window.speechSynthesis && window.speechSynthesis.speaking) {
-          cancelSpeech();
-          setJarvicState("listening");
-          addLog(">> [JARVIC] Vocal response interrupted by user speech. Listening...");
-        }
-      };
-
-      rec.onspeechstart = () => {
-        handleInterruption();
-      };
-
-      rec.onsoundstart = () => {
-        handleInterruption();
-      };
-
-      rec.onresult = (event: any) => {
-        handleInterruption();
-
-        let interimText = "";
-        let latestFinalText = "";
-
-        const startIndex = event.resultIndex ?? 0;
-        for (let i = startIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res.isFinal) {
-            latestFinalText += (res[0]?.transcript ?? "") + " ";
-          } else {
-            interimText += (res[0]?.transcript ?? "") + " ";
-          }
-        }
-
-        latestFinalText = latestFinalText.trim();
-        interimText = interimText.trim();
-
-        if (latestFinalText) {
-          const finalChunk = sanitizeVoiceInput(latestFinalText);
-          if (finalChunk) {
-            setLivePartial(null);
-            addLog(`>> User (Aural): "${finalChunk}"`);
-            handleSendMessage(finalChunk);
-          } else {
-            setLivePartial(null);
-          }
-        } else if (interimText) {
-          const cleanPartial = sanitizeVoiceInput(interimText);
-          setLivePartial(cleanPartial || null);
-        }
-      };
-
-      rec.onerror = (event: any) => {
-        if (event.error === "no-speech") {
-          return;
-        }
-        if (event.error === "aborted" && shouldAutoRestartRef.current) {
-          return;
-        }
-        console.warn("Browser Speech Recognition Notice:", event.error);
-
-        shouldAutoRestartRef.current = false;
-        if (restartTimeoutRef.current) {
-          clearTimeout(restartTimeoutRef.current);
-          restartTimeoutRef.current = null;
-        }
-        try { rec.stop(); } catch {}
-        setVoiceRecognitionActive(false);
-        setJarvicState("idle");
-        addLog(`>> [WARNING] Browser Speech Recognition notice: ${event.error}`);
-      };
-
-      rec.onend = () => {
-        if (shouldAutoRestartRef.current) {
-          if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
-          restartTimeoutRef.current = window.setTimeout(() => {
-            if (shouldAutoRestartRef.current && recognitionRef.current) {
-              try {
-                recognitionRef.current.start();
-              } catch (err) {
-                console.warn("Speech recognition restart skipped", err);
-              }
-            }
-          }, 150);
-          return;
-        }
-
-        setVoiceRecognitionActive(false);
-        setJarvicState("idle");
-      };
-
-      recognitionRef.current = rec;
-    } catch (err) {
-      console.warn("Failed to instantiate SpeechRecognition:", err);
-    }
-  };
-
-  // Initialize Speech Recognition API safely on mount
-  useEffect(() => {
-    initSpeechRecognition();
-  }, []);
-
   const addLog = (text: string) => {
     setSystemLogs(prev => [...prev, text]);
   };
@@ -530,36 +397,22 @@ export default function App() {
         setJarvicState("speaking");
       };
       utterance.onend = () => {
-        if (shouldAutoRestartRef.current) {
-          setJarvicState("listening");
-          if (recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) {}
-          }
-        } else {
-          setJarvicState("idle");
-        }
+        setJarvicState(voiceRecognitionActive ? "listening" : "idle");
       };
       utterance.onerror = () => {
-        if (shouldAutoRestartRef.current) {
-          setJarvicState("listening");
-        } else {
-          setJarvicState("idle");
-        }
+        setJarvicState(voiceRecognitionActive ? "listening" : "idle");
       };
 
       speechUtteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.error("Browser speech synthesis error:", err);
-      setJarvicState(shouldAutoRestartRef.current ? "listening" : "idle");
+      setJarvicState(voiceRecognitionActive ? "listening" : "idle");
     }
   };
 
   const stopVoiceCapture = async () => {
     setLivePartial(null);
-    setDesktopListening(false);
     cancelSpeech();
     try {
       if ((window as any).jarvic?.invokeTool) {
@@ -570,7 +423,6 @@ export default function App() {
     }
     setVoiceRecognitionActive(false);
     setJarvicState("idle");
-    activeVoiceMethodRef.current = null;
   };
 
   // Toggle voice capture (speech recognition)
@@ -597,7 +449,6 @@ export default function App() {
         await (window as any).jarvic.invokeTool("system.audio.listen", { mode: "start" });
         setVoiceRecognitionActive(true);
         setJarvicState("listening");
-        activeVoiceMethodRef.current = "browser";
         return;
       }
     } catch (err: any) {
@@ -606,251 +457,6 @@ export default function App() {
 
     setVoiceRecognitionActive(false);
     setJarvicState("idle");
-  };
-
-  /** Encodes raw 16-bit PCM samples (mono) into a playable/readable WAV Blob. */
-  const encodeWavFromPcm16 = (pcmData: Uint8Array, sampleRate: number): Blob => {
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-    const blockAlign = (numChannels * bitsPerSample) / 8;
-    const dataSize = pcmData.length;
-    const buffer = new ArrayBuffer(44 + dataSize);
-    const view = new DataView(buffer);
-
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-    };
-
-    writeString(0, "RIFF");
-    view.setUint32(4, 36 + dataSize, true);
-    writeString(8, "WAVE");
-    writeString(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, byteRate, true);
-    view.setUint16(32, blockAlign, true);
-    view.setUint16(34, bitsPerSample, true);
-    writeString(36, "data");
-    view.setUint32(40, dataSize, true);
-    new Uint8Array(buffer, 44).set(pcmData);
-
-    return new Blob([buffer], { type: "audio/wav" });
-  };
-
-  /** Starts capturing mic audio as 16kHz mono PCM16 (reusing the same worklet AssemblyAI uses), buffered in memory for whisper.cpp. */
-  const startWhisperCapture = async () => {
-    whisperChunksRef.current = [];
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const audioCtx = new AudioContext();
-    whisperAudioCtxRef.current = audioCtx;
-
-    const workletUrl = new URL('./audio/assemblyai-worklet.js', import.meta.url).toString();
-    await audioCtx.audioWorklet.addModule(workletUrl);
-
-    const source = audioCtx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(audioCtx, 'recorder-processor');
-    whisperNodeRef.current = { node, stream };
-
-    node.port.onmessage = (event: any) => {
-      whisperChunksRef.current.push(event.data);
-    };
-
-    source.connect(node).connect(audioCtx.destination);
-
-    setVoiceRecognitionActive(true);
-    setJarvicState('listening');
-    addLog('>> [JARVIC] Local whisper.cpp capture active. Speak now, Sir.');
-    playSound('beep');
-  };
-
-  /** Stops whisper.cpp capture, builds a WAV from the buffered PCM16, and sends it to the local transcription endpoint. */
-  const stopWhisperCaptureAndTranscribe = async () => {
-    if (whisperNodeRef.current) {
-      const { node, stream } = whisperNodeRef.current;
-      try { node.disconnect(); } catch {}
-      stream.getTracks().forEach((t) => t.stop());
-      whisperNodeRef.current = null;
-    }
-    if (whisperAudioCtxRef.current) {
-      try { await whisperAudioCtxRef.current.close(); } catch {}
-      whisperAudioCtxRef.current = null;
-    }
-
-    setVoiceRecognitionActive(false);
-    setJarvicState('thinking');
-    addLog('>> [JARVIC] Processing local transcription...');
-
-    const totalLength = whisperChunksRef.current.reduce((sum, b) => sum + b.byteLength, 0);
-    const pcmData = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of whisperChunksRef.current) {
-      pcmData.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
-    }
-    whisperChunksRef.current = [];
-
-    if (totalLength === 0) {
-      addLog('>> [WARNING] No audio captured.');
-      setJarvicState('idle');
-      playSound('warning');
-      return;
-    }
-
-    const wavBlob = encodeWavFromPcm16(pcmData, 16000);
-
-    try {
-      const res = await fetch('/api/transcribe-whisper', {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: wavBlob,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Whisper transcription failed.');
-
-      const text = (data.text || '').trim();
-      if (!text) {
-        addLog('>> [WARNING] No speech detected.');
-        setJarvicState('idle');
-        playSound('warning');
-        return;
-      }
-      addLog(`>> User (Aural): "${text}"`);
-      handleSendMessage(text);
-    } catch (err: any) {
-      addLog(`>> [WARNING] Whisper transcription error: ${err.message}`);
-      setJarvicState('idle');
-      playSound('warning');
-    }
-  };
-
-  // Start AssemblyAI realtime transcription via WebSocket and AudioWorklet
-  const startRealtimeTranscription = async () => {
-    // Acquire temp token from server
-    const tokenRes = await fetch('/api/assemblyai/token');
-    if (!tokenRes.ok) throw new Error('Failed to obtain assemblyai token');
-    const { token } = await tokenRes.json();
-
-    // Open websocket. AssemblyAI realtime WebSocket endpoint (v2) expects token as query param
-    const sampleRate = 16000;
-    const wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=${sampleRate}&token=${encodeURIComponent(token)}`;
-
-    const ws = new WebSocket(wsUrl);
-    assemblyWsRef.current = ws;
-
-    ws.onopen = async () => {
-      addLog('>> [STT] WebSocket connected to AssemblyAI.');
-      setVoiceRecognitionActive(true);
-      setJarvicState('listening');
-      playSound('beep');
-
-      try {
-        // Start audio capture and worklet
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioCtx = new AudioContext();
-        audioContextRef.current = audioCtx;
-
-        const workletUrl = new URL('./audio/assemblyai-worklet.js', import.meta.url).toString();
-        await audioCtx.audioWorklet.addModule(workletUrl);
-
-        const source = audioCtx.createMediaStreamSource(stream);
-        const node = new AudioWorkletNode(audioCtx, 'recorder-processor');
-        workletNodeRef.current = { node, stream };
-
-        node.port.onmessage = (event: any) => {
-          // event.data is an ArrayBuffer (PCM16)
-          try {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(event.data);
-            }
-          } catch (e) {
-            console.error('WebSocket send error', e);
-          }
-        };
-
-        source.connect(node).connect(audioCtx.destination);
-      } catch (err: any) {
-        console.error('Mic/AudioWorklet setup failed', err);
-        addLog(`>> [ERROR] Could not start microphone capture: ${err?.message ?? err}`);
-        playSound('warning');
-        setVoiceRecognitionActive(false);
-        setJarvicState('idle');
-        try { ws.close(); } catch {}
-      }
-    };
-
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        // AssemblyAI realtime events include `type` and `text` fields.
-        // Handle partial vs final transcript according to API response structure.
-        if (data.type === 'partial_transcript' || data.type === 'partial') {
-          setLivePartial(data.text || data.partial || '');
-        } else if (data.type === 'final_transcript' || data.type === 'final') {
-          const finalText = data.text || data.final || '';
-          setLivePartial(null);
-          addLog(`>> User (Aural): "${finalText}"`);
-          stopRealtimeTranscription();
-          handleSendMessage(finalText);
-        } else if (data.type === 'message' && data.text) {
-          // Some AssemblyAI schemas return message objects
-          const isFinal = !!data.is_final;
-          if (isFinal) {
-            setLivePartial(null);
-            addLog(`>> User (Aural): "${data.text}"`);
-            stopRealtimeTranscription();
-            handleSendMessage(data.text);
-          } else {
-            setLivePartial(data.text);
-          }
-        }
-      } catch (err) {
-        console.error('WS message parse error', err, ev.data);
-      }
-    };
-
-    ws.onerror = (e) => {
-      console.error('AssemblyAI WS error', e);
-      addLog('>> [ERROR] AssemblyAI realtime WebSocket error.');
-      playSound('warning');
-    };
-
-    ws.onclose = () => {
-      setVoiceRecognitionActive(false);
-      setJarvicState('idle');
-      assemblyWsRef.current = null;
-    };
-  };
-
-  const stopRealtimeTranscription = async () => {
-    // Stop worklet and audio
-    try {
-      if (workletNodeRef.current) {
-        const { node, stream } = workletNodeRef.current;
-        try { node.port.postMessage({ command: 'stop' }); } catch {}
-        node.disconnect();
-        if (stream) stream.getTracks().forEach((t: any) => t.stop());
-        workletNodeRef.current = null;
-      }
-      if (audioContextRef.current) {
-        try { await audioContextRef.current.close(); } catch {}
-        audioContextRef.current = null;
-      }
-    } catch (err) {
-      console.warn('Error stopping audio context', err);
-    }
-
-    // Close websocket
-    if (assemblyWsRef.current) {
-      try { assemblyWsRef.current.close(); } catch {}
-      assemblyWsRef.current = null;
-    }
-
-    setVoiceRecognitionActive(false);
-    setJarvicState('idle');
-    playSound('success');
   };
 
   // Safe manual text entry processing
@@ -1266,7 +872,7 @@ export default function App() {
     toggleVoiceCaptureRef.current = toggleVoiceCapture;
   });
 
-  // Listen for native Electron audio events (Whisper.cpp)
+  // Listen for native Electron voice events.
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).jarvic?.onAudioEvent) {
       console.log("[JARVIC] Binding native audio event listener");
@@ -1294,6 +900,11 @@ export default function App() {
           if (text.trim()) {
             handleSendMessageRef.current(text);
           }
+        } else if (data.event === "voice-warning") {
+          const message = data.data ?? "Unknown voice pipeline issue.";
+          console.warn("[JARVIC] Voice warning:", message);
+          addLog(`>> [WARNING] ${message}`);
+          playSound("warning");
         }
       });
       return () => {

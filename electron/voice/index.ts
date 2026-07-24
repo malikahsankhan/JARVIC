@@ -6,11 +6,11 @@
  *
  * main.ts only needs `voiceManager.start()` at startup and
  * `voiceManager.stop()` at shutdown; everything else (wake word, mode
- * failover/recovery, follow-up mode, state machine) is internal.
+ * hidden Chrome bridge, WebSocket route, and state machine) is internal.
  */
 
-import { VoiceManager } from "./voiceManager";
+import { VoiceManager } from "./voice_manager";
 
 export const voiceManager = new VoiceManager();
-export { VoiceManager } from "./voiceManager";
-export type { VoiceState, SpeechMode, VoiceConfig } from "./types";
+export { VoiceManager } from "./voice_manager";
+export type { VoiceState } from "./types";

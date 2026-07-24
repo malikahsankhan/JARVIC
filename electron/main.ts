@@ -32,7 +32,6 @@ function startBundledServer(): void {
   serverProcess = fork(serverEntry, [], {
     env: {
       ...process.env,
-      WHISPER_DIR: path.join(process.resourcesPath, "whisper"),
       NODE_ENV: "production",
     },
     silent: true,
@@ -298,12 +297,8 @@ app.whenReady().then(() => {
     console.error("[JARVIC] Failed to launch the browser:", err);
   });
 
-  // Start the Hybrid Speech Recognition system: local wake-word listener
-  // (always-on, fully offline) + the Browser Speech WebSocket bridge
-  // (a real Chrome/Edge tab can connect to it for higher-accuracy
-  // recognition; JARVIC automatically falls back to fully-offline
-  // recognition whenever it isn't connected). See electron/voice/.
-  // Start the Voice System quietly without launching external tabs
+  // Start the browser-only voice system. It owns a hidden Chrome Web Speech
+  // page plus a local WebSocket bridge; there is no wake word or offline STT.
   voiceManager.start().catch((err) => {
     console.error("[JARVIC] Failed to start the voice system:", err);
   });
