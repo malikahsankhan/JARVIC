@@ -81,31 +81,10 @@ export class BrowserSpeechService extends EventEmitter {
   }
 
   startRecognition(reason: "manual" | "barge-in" = "manual"): void {
-    this.clickSpeechControl("#startButton").catch((err) => {
-      this.emit("error", `Could not click browser speech start button: ${err?.message ?? err}`);
-      this.server.send({ type: "start", reason });
-    });
-  }
-
-  stopRecognition(): void {
-    this.clickSpeechControl("#stopButton").catch(() => {
-      this.server.send({ type: "stop" });
-    });
-  }
-
-  private async clickSpeechControl(selector: "#startButton" | "#stopButton"): Promise<void> {
-    if (!this.page || this.page.isClosed?.()) {
-      throw new Error("speech page is not ready");
-    }
-    await this.page.bringToFront().catch(() => {});
-    await this.page.click(selector, { timeout: 2_000 });
-  }
-
-  startRecognitionViaSocket(reason: "manual" | "barge-in" = "manual"): void {
     this.server.send({ type: "start", reason });
   }
 
-  stopRecognitionViaSocket(): void {
+  stopRecognition(): void {
     this.server.send({ type: "stop" });
   }
 

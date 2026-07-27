@@ -9,6 +9,7 @@
   let recognition = null;
   let reconnectTimer = null;
   let listening = false;
+  let userStopped = false;
   let finalBuffer = "";
   let lastInterim = "";
   let silenceTimer = null;
@@ -46,7 +47,7 @@
 
     recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
@@ -111,12 +112,18 @@
       }
       if (error === "network" || error === "not-allowed" || error === "service-not-allowed") {
         listening = false;
+        userStopped = true;
       }
     };
 
     recognition.onend = function () {
       listening = false;
       sendFinal("ended");
+      if (!userStopped) {
+        setTimeout(function () {
+          if (!userStopped) startRecognition();
+        }, 300);
+      }
     };
 
     return recognition;
@@ -130,16 +137,18 @@
         resetSilenceTimer();
         return;
       }
-      stopRecognition("silence");
+      finalizeAndRestart();
     }, SILENCE_MS);
   }
 
   function startRecognition() {
+    if (listening) return;
     const sr = ensureRecognition();
     if (!sr) return;
     finalBuffer = "";
     lastInterim = "";
     serviceError = null;
+    userStopped = false;
     listenStartedAt = Date.now();
     transcriptEl.textContent = "";
     listening = true;
@@ -156,6 +165,7 @@
   function stopRecognition(reason) {
     if (!listening) return;
     listening = false;
+    userStopped = true;
     if (silenceTimer) window.clearTimeout(silenceTimer);
     silenceTimer = null;
     setStatus("Idle");
@@ -166,10 +176,25 @@
     }
   }
 
+  function finalizeAndRestart() {
+    if (!listening) return;
+    listening = false;
+    userStopped = true;
+    if (silenceTimer) window.clearTimeout(silenceTimer);
+    silenceTimer = null;
+    try {
+      recognition && recognition.stop();
+    } catch (_) {
+      sendFinal("silence");
+    }
+    setTimeout(function () {
+      startRecognition();
+    }, 300);
+  }
+
   function sendFinal(reason) {
     const text = clean(finalBuffer || lastInterim);
     if (text) send({ type: "final", text, confidence: 0.8 });
-    else if (reason === "ended" && !serviceError) send({ type: "error", error: "Browser speech ended without a transcript. Chrome heard audio but returned no recognition result." });
     send({ type: "stopped", reason: reason || "stopped" });
     finalBuffer = "";
     lastInterim = "";

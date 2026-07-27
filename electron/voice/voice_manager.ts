@@ -106,9 +106,11 @@ export class VoiceManager {
     this.router.on("speech-start", () => this.handleSpeechStart());
     this.router.on("partial", (text: string) => this.handlePartial(text));
     this.router.on("transcript", (result: BrowserTranscript) => this.handleFinal(result));
-    this.router.on("stopped", () => {
-      if (this.state === "LISTENING" || this.state === "INTERRUPTED") this.setState("IDLE");
-      this.manualListening = false;
+    this.router.on("stopped", (reason: string) => {
+      if (reason === "manual" || reason === "disconnect") {
+        if (this.state === "LISTENING" || this.state === "INTERRUPTED") this.setState("IDLE");
+        this.manualListening = false;
+      }
     });
   }
 
@@ -137,9 +139,7 @@ export class VoiceManager {
   private handleFinal(result: BrowserTranscript): void {
     const text = sanitizeTranscript(result.text);
     notifyPartialTranscript("");
-    this.manualListening = false;
     if (!text) {
-      this.setState("IDLE");
       return;
     }
     this.interruptIfSpeaking();
@@ -164,11 +164,12 @@ export class VoiceManager {
       if (speaking) {
         sawTts = true;
         this.setState("SPEAKING");
-        this.router.startListening("barge-in");
       } else if (sawTts || Date.now() - startedAt > 20_000) {
         this.clearTtsPoll();
-        this.router.stopListening();
-        if (this.state === "SPEAKING" || this.state === "PROCESSING") this.setState("IDLE");
+        if (this.state === "SPEAKING" || this.state === "PROCESSING") {
+          this.setState("LISTENING");
+          this.router.startListening("barge-in");
+        }
       }
     }, 200);
   }
