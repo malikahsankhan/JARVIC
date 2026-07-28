@@ -9,6 +9,8 @@ import { registerTool } from "../ipc/toolRegistry";
 import { assertWindows, runPowerShell, launchDetached } from "./lib";
 import path from "path";
 import os from "os";
+import fs from "fs";
+import { app } from "electron";
 
 const windir = process.env["WINDIR"] || "C:\\Windows";
 
@@ -537,5 +539,344 @@ registerTool({
        [System.Windows.Forms.SendKeys]::SendWait('%{TAB}')`
     );
     return { success: true };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAW COMMAND EXECUTION (escape hatch for anything not covered by a dedicated
+// tool above). Deliberately the most locked-down tool in the whole manifest:
+//   - destructive: true, so the renderer always shows a confirm dialog first
+//   - server-side re-check of { confirm: true }, so a compromised/buggy
+//     renderer can't skip the gate
+//   - every invocation (command, args, exit status, truncated output) is
+//     appended to a persistent audit log on disk, regardless of outcome
+// ─────────────────────────────────────────────────────────────────────────────
+
+function auditLogPath(): string {
+  return path.join(app.getPath("userData"), "runcommand-audit.log");
+}
+
+function appendAuditLog(entry: Record<string, unknown>): void {
+  try {
+    fs.appendFileSync(auditLogPath(), JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + "\n");
+  } catch (err) {
+    console.error("[JARVIC] Failed to write runCommand audit log:", err);
+  }
+}
+
+registerTool({
+  name: "system.runCommand",
+  description:
+    "Runs a single arbitrary PowerShell command line and returns its stdout/stderr. This is a last-resort escape hatch for tasks with no dedicated tool — ALWAYS prefer a specific tool (files.*, apps.*, system.*, etc.) when one exists. Every call is written to a permanent audit log on disk. Requires the user to have explicitly agreed to the exact command first.",
+  destructive: true,
+  validateArgs: (raw) => {
+    const command = (raw as any)?.command;
+    if (typeof command !== "string" || !command.trim()) {
+      throw new Error("Expected { command: string, confirm: boolean }");
+    }
+    if ((raw as any)?.confirm !== true) {
+      throw new Error("Provide { confirm: true } after the user has explicitly agreed to this exact command.");
+    }
+    const timeoutMs = (raw as any)?.timeoutMs;
+    return {
+      command: command as string,
+      timeoutMs: typeof timeoutMs === "number" && timeoutMs > 0 && timeoutMs <= 60_000 ? timeoutMs : 20_000,
+    };
+  },
+  handler: async ({ command, timeoutMs }: { command: string; timeoutMs: number }) => {
+    assertWindows("system.runCommand");
+    const startedAt = Date.now();
+    try {
+      const stdout = await runPowerShell(command, timeoutMs);
+      appendAuditLog({ command, status: "success", durationMs: Date.now() - startedAt, output: stdout.slice(0, 4000) });
+      return { success: true, output: stdout };
+    } catch (err: any) {
+      appendAuditLog({ command, status: "error", durationMs: Date.now() - startedAt, error: err?.message ?? String(err) });
+      throw err;
+    }
+  },
+});
+
+registerTool({
+  name: "system.readRunCommandAuditLog",
+  description: "Reads the last N entries of the system.runCommand audit log (what commands were run, when, and their result) — useful for reviewing what JARVIC has actually executed.",
+  validateArgs: (raw) => {
+    const limit = (raw as any)?.limit;
+    return { limit: typeof limit === "number" && limit > 0 && limit <= 500 ? Math.floor(limit) : 50 };
+  },
+  handler: async ({ limit }: { limit: number }) => {
+    const logPath = auditLogPath();
+    if (!fs.existsSync(logPath)) return { entries: [] };
+    const lines = fs.readFileSync(logPath, "utf-8").trim().split("\n").filter(Boolean);
+    const entries = lines.slice(-limit).map((l) => {
+      try { return JSON.parse(l); } catch { return { raw: l }; }
+    });
+    return { entries };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVICES CONTROL (system.runningServices above is read-only; these actually
+// change service state)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function validateServiceName(raw: unknown): { name: string } {
+  const name = (raw as any)?.name;
+  if (typeof name !== "string" || !name.trim()) throw new Error("Expected { name: string } — the service's short Name, not its DisplayName.");
+  return { name: name.trim() };
+}
+
+registerTool({
+  name: "services.status",
+  description: "Gets the current status (Running/Stopped/etc) of a single Windows service by its short Name (e.g. 'wuauserv').",
+  validateArgs: (raw) => validateServiceName(raw),
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("services.status");
+    const raw = await runPowerShell(`Get-Service -Name '${name}' | Select-Object Name, DisplayName, Status, StartType | ConvertTo-Json -Compress`);
+    try { return JSON.parse(raw.trim()); } catch { return { raw: raw.trim() }; }
+  },
+});
+
+registerTool({
+  name: "services.start",
+  description: "Starts a stopped Windows service by its short Name.",
+  validateArgs: (raw) => validateServiceName(raw),
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("services.start");
+    await runPowerShell(`Start-Service -Name '${name}'`);
+    return { success: true, message: `Service '${name}' started.` };
+  },
+});
+
+registerTool({
+  name: "services.stop",
+  description: "Stops a running Windows service by its short Name. Requires the user to have explicitly agreed first.",
+  destructive: true,
+  validateArgs: (raw) => {
+    const { name } = validateServiceName(raw);
+    if ((raw as any)?.confirm !== true) throw new Error("Provide { confirm: true } after the user has explicitly agreed.");
+    return { name };
+  },
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("services.stop");
+    await runPowerShell(`Stop-Service -Name '${name}' -Force`);
+    return { success: true, message: `Service '${name}' stopped.` };
+  },
+});
+
+registerTool({
+  name: "services.restart",
+  description: "Restarts a Windows service by its short Name. Requires the user to have explicitly agreed first.",
+  destructive: true,
+  validateArgs: (raw) => {
+    const { name } = validateServiceName(raw);
+    if ((raw as any)?.confirm !== true) throw new Error("Provide { confirm: true } after the user has explicitly agreed.");
+    return { name };
+  },
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("services.restart");
+    await runPowerShell(`Restart-Service -Name '${name}' -Force`);
+    return { success: true, message: `Service '${name}' restarted.` };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POWER PLANS
+// ─────────────────────────────────────────────────────────────────────────────
+
+registerTool({
+  name: "system.listPowerPlans",
+  description: "Lists all available Windows power plans (e.g. Balanced, High performance, Power saver) and which one is currently active.",
+  validateArgs: () => ({}),
+  handler: async () => {
+    assertWindows("system.listPowerPlans");
+    const raw = await runPowerShell(`powercfg /list`);
+    const plans = raw
+      .split("\n")
+      .map((line) => {
+        const m = line.match(/Power Scheme GUID:\s*([0-9a-fA-F-]+)\s*\(([^)]+)\)(\s*\*)?/);
+        if (!m) return null;
+        return { guid: m[1], name: m[2], active: !!m[3] };
+      })
+      .filter(Boolean);
+    return { plans };
+  },
+});
+
+registerTool({
+  name: "system.setPowerPlan",
+  description: "Switches the active Windows power plan by its GUID (get this from system.listPowerPlans first).",
+  validateArgs: (raw) => {
+    const guid = (raw as any)?.guid;
+    if (typeof guid !== "string" || !guid.trim()) throw new Error("Expected { guid: string } — get this from system.listPowerPlans.");
+    return { guid: guid.trim() };
+  },
+  handler: async ({ guid }: { guid: string }) => {
+    assertWindows("system.setPowerPlan");
+    await runPowerShell(`powercfg /setactive ${guid}`);
+    return { success: true, message: `Power plan switched.` };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STARTUP APPS (HKCU/HKLM Run keys — covers the common case; does not cover
+// Task-Scheduler-based or UWP startup entries, which Task Manager's "Startup
+// apps" tab also draws from)
+// ─────────────────────────────────────────────────────────────────────────────
+
+registerTool({
+  name: "system.listStartupApps",
+  description: "Lists programs configured to launch at sign-in, from the current user's and all users' Registry Run keys.",
+  validateArgs: () => ({}),
+  handler: async () => {
+    assertWindows("system.listStartupApps");
+    const raw = await runPowerShell(
+      `$paths = @(
+        @{ Scope = "CurrentUser"; Path = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" },
+        @{ Scope = "AllUsers"; Path = "HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" }
+       );
+       $result = @();
+       foreach ($p in $paths) {
+         if (Test-Path $p.Path) {
+           $item = Get-Item $p.Path;
+           foreach ($prop in $item.Property) {
+             $result += [PSCustomObject]@{ Scope = $p.Scope; Name = $prop; Command = $item.GetValue($prop) };
+           }
+         }
+       }
+       $result | ConvertTo-Json -Compress`
+    );
+    try {
+      const parsed = JSON.parse(raw.trim() || "[]");
+      return { apps: Array.isArray(parsed) ? parsed : [parsed] };
+    } catch { return { raw: raw.trim() }; }
+  },
+});
+
+registerTool({
+  name: "system.addStartupApp",
+  description: "Adds a program to the current user's startup (Registry Run key) so it launches at sign-in.",
+  validateArgs: (raw) => {
+    const name = (raw as any)?.name, command = (raw as any)?.command;
+    if (typeof name !== "string" || !name.trim() || typeof command !== "string" || !command.trim()) {
+      throw new Error("Expected { name: string, command: string } — command should be the full path to the executable (with args if needed).");
+    }
+    return { name: name.trim(), command: command.trim() };
+  },
+  handler: async ({ name, command }: { name: string; command: string }) => {
+    assertWindows("system.addStartupApp");
+    const safeCommand = command.replace(/'/g, "''");
+    await runPowerShell(`Set-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -Name '${name}' -Value '${safeCommand}'`);
+    return { success: true, message: `'${name}' added to startup.` };
+  },
+});
+
+registerTool({
+  name: "system.removeStartupApp",
+  description: "Removes a program from the current user's startup (Registry Run key). Requires the user to have explicitly agreed first.",
+  destructive: true,
+  validateArgs: (raw) => {
+    const name = (raw as any)?.name;
+    if (typeof name !== "string" || !name.trim()) throw new Error("Expected { name: string, confirm: boolean }");
+    if ((raw as any)?.confirm !== true) throw new Error("Provide { confirm: true } after the user has explicitly agreed.");
+    return { name: name.trim() };
+  },
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("system.removeStartupApp");
+    await runPowerShell(`Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -Name '${name}' -ErrorAction SilentlyContinue`);
+    return { success: true, message: `'${name}' removed from startup.` };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WI-FI CONNECT (wifi.status/listNetworks/enable/disable already existed —
+// this actually joins a network)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+registerTool({
+  name: "wifi.connect",
+  description:
+    "Connects to a Wi-Fi network by SSID. If a password is provided, creates a WPA2-Personal profile first (in case one doesn't already exist); if no password is given, connects using an existing saved profile of the same name.",
+  validateArgs: (raw) => {
+    const ssid = (raw as any)?.ssid;
+    if (typeof ssid !== "string" || !ssid.trim()) throw new Error("Expected { ssid: string, password?: string }");
+    const password = (raw as any)?.password;
+    return { ssid: ssid.trim(), password: typeof password === "string" && password.length > 0 ? password : undefined };
+  },
+  handler: async ({ ssid, password }: { ssid: string; password?: string }) => {
+    assertWindows("wifi.connect");
+    if (password) {
+      const profileXml =
+        `<?xml version="1.0"?>\n` +
+        `<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">\n` +
+        `  <name>${escapeXml(ssid)}</name>\n` +
+        `  <SSIDConfig><SSID><name>${escapeXml(ssid)}</name></SSID></SSIDConfig>\n` +
+        `  <connectionType>ESS</connectionType>\n  <connectionMode>auto</connectionMode>\n` +
+        `  <MSM><security>\n` +
+        `    <authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption>\n` +
+        `    <sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>${escapeXml(password)}</keyMaterial></sharedKey>\n` +
+        `  </security></MSM>\n</WLANProfile>`;
+      const tempPath = path.join(os.tmpdir(), `jarvic-wifi-${Date.now()}.xml`);
+      fs.writeFileSync(tempPath, profileXml, "utf-8");
+      try {
+        await runPowerShell(`netsh wlan add profile filename="${tempPath}" user=all`);
+      } finally {
+        fs.unlink(tempPath, () => {});
+      }
+    }
+    const raw = await runPowerShell(`netsh wlan connect name="${ssid}" ssid="${ssid}"`);
+    return { success: true, message: raw.trim() || `Connecting to '${ssid}'...` };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIO DEVICES (distinct from system.setVolume/adjustVolume, which control
+// the currently-selected device's level, not which device is selected)
+// ─────────────────────────────────────────────────────────────────────────────
+
+registerTool({
+  name: "audio.listDevices",
+  description: "Lists available audio playback/recording devices.",
+  validateArgs: () => ({}),
+  handler: async () => {
+    assertWindows("audio.listDevices");
+    const raw = await runPowerShell(
+      `Get-CimInstance Win32_SoundDevice | Select-Object Name, Status | ConvertTo-Json -Compress`
+    );
+    try {
+      const parsed = JSON.parse(raw.trim() || "[]");
+      return { devices: Array.isArray(parsed) ? parsed : [parsed] };
+    } catch { return { raw: raw.trim() }; }
+  },
+});
+
+registerTool({
+  name: "audio.setDefaultDevice",
+  description:
+    "Sets the default audio playback device by (partial, case-insensitive) name. Requires the third-party 'AudioDeviceCmdlets' PowerShell module (Windows has no built-in cmdlet for this) — if it's missing, this returns an error explaining how to install it (Install-Module AudioDeviceCmdlets).",
+  validateArgs: (raw) => {
+    const name = (raw as any)?.name;
+    if (typeof name !== "string" || !name.trim()) throw new Error("Expected { name: string }");
+    return { name: name.trim() };
+  },
+  handler: async ({ name }: { name: string }) => {
+    assertWindows("audio.setDefaultDevice");
+    const safeName = name.replace(/'/g, "''");
+    try {
+      await runPowerShell(
+        `if (-not (Get-Module -ListAvailable -Name AudioDeviceCmdlets)) { throw "AudioDeviceCmdlets module not installed. Run: Install-Module AudioDeviceCmdlets -Scope CurrentUser" }
+         Import-Module AudioDeviceCmdlets
+         $dev = Get-AudioDevice -List | Where-Object { $_.Name -like '*${safeName}*' -and $_.Type -eq 'Playback' } | Select-Object -First 1
+         if (-not $dev) { throw "No playback device matching '${safeName}' found." }
+         Set-AudioDevice -ID $dev.ID`
+      );
+      return { success: true, message: `Default audio device switched to a device matching '${name}'.` };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   },
 });

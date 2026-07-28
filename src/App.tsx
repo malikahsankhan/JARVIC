@@ -806,19 +806,28 @@ export default function App() {
           return;
         }
 
-        // Execute each requested tool call and collect structured results.
-        const toolResults: ToolCallResult[] = [];
-        for (const call of botMessage.toolCalls) {
+        // Tools that only ever read state and never depend on a previous
+        // call's side effect (no window focus, no app-just-opened timing) —
+        // safe to run in parallel instead of one strict await-chain.
+        const READ_ONLY_TOOLS = new Set([
+          "system.getVolume", "system.getBrightness", "clipboard.read", "wifi.status", "wifi.listNetworks",
+          "network.info", "network.publicIp", "bluetooth.status", "recycleBin.size", "system.hostname",
+          "system.installedApps", "system.runningServices", "system.envVars", "system.getScreenResolution",
+          "system.usage", "system.diskUsage", "system.batteryStatus", "system.internetStatus", "processes.list",
+          "desktop.listWindows", "desktop.getActiveWindow", "desktop.listMonitors", "desktop.dumpControls",
+          "files.read", "files.search", "system.readRunCommandAuditLog", "screen.readText",
+        ]);
+
+        async function runSingleCall(call: ToolCall): Promise<ToolCallResult> {
           addLog(`>> [TOOL] Requesting ${call.name}(${JSON.stringify(call.args)})`);
 
           if (!window.jarvic) {
-            toolResults.push({
+            addLog(`>> [WARNING] ${call.name} skipped — desktop bridge not present.`);
+            return {
               id: call.id,
               name: call.name,
               result: { success: false, error: "Desktop tools are unavailable — JARVIC is running in a plain browser tab, not the desktop app.", executionTimeMs: 0 },
-            });
-            addLog(`>> [WARNING] ${call.name} skipped — desktop bridge not present.`);
-            continue;
+            };
           }
 
           if (isDestructiveTool(call.name)) {
@@ -826,27 +835,41 @@ export default function App() {
               `JARVIC wants to run "${call.name}" with arguments:\n${JSON.stringify(call.args, null, 2)}\n\nThis action is irreversible or high-impact. Allow it?`
             );
             if (!proceed) {
-              toolResults.push({
-                id: call.id,
-                name: call.name,
-                result: { success: false, error: "The user declined to confirm this action.", executionTimeMs: 0 },
-              });
               addLog(`>> [SECURITY] ${call.name} declined by user.`);
-              continue;
+              return { id: call.id, name: call.name, result: { success: false, error: "The user declined to confirm this action.", executionTimeMs: 0 } };
             }
           }
 
           try {
             const result = await window.jarvic.invokeTool(call.name, call.args);
-            toolResults.push({ id: call.id, name: call.name, result });
             addLog(result.success ? `>> [TOOL] ${call.name} succeeded.` : `>> [TOOL] ${call.name} failed: ${result.error}`);
+            return { id: call.id, name: call.name, result };
           } catch (err: any) {
-            toolResults.push({
-              id: call.id,
-              name: call.name,
-              result: { success: false, error: err?.message ?? String(err), executionTimeMs: 0 },
-            });
+            return { id: call.id, name: call.name, result: { success: false, error: err?.message ?? String(err), executionTimeMs: 0 } };
           }
+        }
+
+        // Execute each requested tool call and collect structured results.
+        // Consecutive read-only calls are batched and run in parallel;
+        // everything else still runs one at a time, in order, exactly as before.
+        const toolResults: ToolCallResult[] = [];
+        const calls = botMessage.toolCalls;
+        let callIdx = 0;
+        while (callIdx < calls.length) {
+          if (READ_ONLY_TOOLS.has(calls[callIdx].name)) {
+            const batch: ToolCall[] = [];
+            while (callIdx < calls.length && READ_ONLY_TOOLS.has(calls[callIdx].name)) {
+              batch.push(calls[callIdx]);
+              callIdx++;
+            }
+            // Promise.all's return preserves batch order regardless of completion timing.
+            const batchResults = await Promise.all(batch.map(runSingleCall));
+            toolResults.push(...batchResults);
+            continue;
+          }
+
+          toolResults.push(await runSingleCall(calls[callIdx]));
+          callIdx++;
         }
 
         const toolMsg: Message = { role: "tool", content: "", timestamp: new Date().toISOString(), toolResults };

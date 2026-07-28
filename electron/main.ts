@@ -9,6 +9,8 @@ import { browserManager } from "./browser/BrowserManager";
 import { voiceManager } from "./voice";
 import "./tools"; // side-effect: registers every tool module into the registry
 import "./tools/audio";
+import { shutdownAutomationWorker } from "./tools/desktop_automation";
+import { shutdownPowerShellWorker } from "./tools/lib";
 
 dotenv.config();
 
@@ -323,6 +325,8 @@ let quittingAfterBrowserShutdown = false;
 app.on("before-quit", (event) => {
   destroyMiniWidget();
   stopBundledServer();
+  shutdownAutomationWorker();
+  shutdownPowerShellWorker();
 
   if (!quittingAfterBrowserShutdown) {
     event.preventDefault();
@@ -337,4 +341,6 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   destroyMiniWidget();
   stopBundledServer();
+  shutdownAutomationWorker();
+  shutdownPowerShellWorker();
 });

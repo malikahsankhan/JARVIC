@@ -372,6 +372,120 @@ class AutomationEngine:
                 self._log(f"Win32 connect_by_process failed: {e}")
         raise AutomationError(f"Could not connect to process: '{process_name}'")
 
+    # -- window manipulation ------------------------------------------------
+
+    def _hwnd_of(self, win):
+        hwnd = getattr(win, "handle", None)
+        if not hwnd:
+            raise AutomationError("Could not resolve a window handle for this control.")
+        return hwnd
+
+    def move_window(self, win, x: int, y: int):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for window move")
+        hwnd = self._hwnd_of(win)
+        rect = win32gui.GetWindowRect(hwnd)
+        width, height = rect[2] - rect[0], rect[3] - rect[1]
+        win32gui.MoveWindow(hwnd, int(x), int(y), width, height, True)
+        self._log(f"Moved window (hwnd={hwnd}) to ({x}, {y})")
+        return {"x": int(x), "y": int(y), "width": width, "height": height}
+
+    def resize_window(self, win, width: int, height: int):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for window resize")
+        hwnd = self._hwnd_of(win)
+        rect = win32gui.GetWindowRect(hwnd)
+        win32gui.MoveWindow(hwnd, rect[0], rect[1], int(width), int(height), True)
+        self._log(f"Resized window (hwnd={hwnd}) to {width}x{height}")
+        return {"x": rect[0], "y": rect[1], "width": int(width), "height": int(height)}
+
+    def set_window_state(self, win, state: str):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for window state change")
+        hwnd = self._hwnd_of(win)
+        cmd_map = {
+            "minimize": win32con.SW_MINIMIZE,
+            "maximize": win32con.SW_MAXIMIZE,
+            "restore": win32con.SW_RESTORE,
+        }
+        cmd = cmd_map.get(state)
+        if cmd is None:
+            raise AutomationError(f"Unknown window state '{state}' (expected minimize/maximize/restore)")
+        win32gui.ShowWindow(hwnd, cmd)
+        self._log(f"Set window (hwnd={hwnd}) state to '{state}'")
+        return {"state": state}
+
+    def close_window(self, win):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for window close")
+        hwnd = self._hwnd_of(win)
+        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        self._log(f"Sent WM_CLOSE to window (hwnd={hwnd})")
+        return {"closed": True}
+
+    def snap_window(self, win, position: str):
+        """position: left | right | maximize | top-left | top-right | bottom-left | bottom-right"""
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for window snap")
+        hwnd = self._hwnd_of(win)
+        monitor = win32api.MonitorFromWindow(hwnd, win32con.MONITOR_DEFAULTTONEAREST)
+        info = win32api.GetMonitorInfo(monitor)
+        left, top, right, bottom = info["Work"]  # excludes taskbar
+        full_w, full_h = right - left, bottom - top
+        half_w, half_h = full_w // 2, full_h // 2
+
+        if position == "maximize":
+            win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+            self._log(f"Snapped window (hwnd={hwnd}) to maximize")
+            return {"position": position}
+
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        rects = {
+            "left": (left, top, half_w, full_h),
+            "right": (left + half_w, top, full_w - half_w, full_h),
+            "top-left": (left, top, half_w, half_h),
+            "top-right": (left + half_w, top, full_w - half_w, half_h),
+            "bottom-left": (left, top + half_h, half_w, full_h - half_h),
+            "bottom-right": (left + half_w, top + half_h, full_w - half_w, full_h - half_h),
+        }
+        target = rects.get(position)
+        if target is None:
+            raise AutomationError(f"Unknown snap position '{position}' (expected left/right/maximize/top-left/top-right/bottom-left/bottom-right)")
+        win32gui.MoveWindow(hwnd, *target, True)
+        self._log(f"Snapped window (hwnd={hwnd}) to '{position}'")
+        return {"position": position, "rect": target}
+
+    def move_to_monitor(self, win, monitor_index: int):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available for monitor move")
+        hwnd = self._hwnd_of(win)
+        monitors = win32api.EnumDisplayMonitors()
+        if monitor_index < 0 or monitor_index >= len(monitors):
+            raise AutomationError(f"Monitor index {monitor_index} out of range (0-{len(monitors) - 1})")
+        info = win32api.GetMonitorInfo(monitors[monitor_index][0])
+        left, top, right, bottom = info["Work"]
+        rect = win32gui.GetWindowRect(hwnd)
+        width = min(rect[2] - rect[0], right - left)
+        height = min(rect[3] - rect[1], bottom - top)
+        win32gui.MoveWindow(hwnd, left, top, width, height, True)
+        self._log(f"Moved window (hwnd={hwnd}) to monitor {monitor_index}")
+        return {"monitor_index": monitor_index, "x": left, "y": top, "width": width, "height": height}
+
+    def list_monitors(self):
+        if not PYWIN32_AVAILABLE:
+            raise AutomationError("pywin32 not available to list monitors")
+        monitors = []
+        for i, entry in enumerate(win32api.EnumDisplayMonitors()):
+            info = win32api.GetMonitorInfo(entry[0])
+            monitors.append({
+                "index": i,
+                "device": info.get("Device"),
+                "is_primary": bool(info.get("Flags", 0) & 1),
+                "work_area": info.get("Work"),
+                "monitor_area": info.get("Monitor"),
+            })
+        return monitors
+
     # -- control discovery ------------------------------------------------
 
     def list_controls(self, win, max_controls: int = 400):

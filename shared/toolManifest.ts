@@ -348,6 +348,12 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     },
   },
   {
+    name: "screen.readText",
+    description:
+      "Reads all text currently visible anywhere on screen using OCR — works on games, images, PDFs, and any custom-drawn UI with no accessibility tree, unlike desktop.dumpControls (which only sees UIA-exposed controls). Returns full text plus per-line/per-word coordinates. Use this when desktop.dumpControls fails to find something, or the target isn't a standard control.",
+    parameters: { type: "object", properties: {} },
+  },
+  {
     name: "input.typeText",
     description:
       "Types/writes literal text into whatever window or input field currently has keyboard focus. Use this whenever the user asks you to type, write, or enter text somewhere — e.g. 'type X in notepad', 'write hello world'. This is the ONLY tool for fulfilling typing requests; it is unrelated to screenshots.",
@@ -562,6 +568,66 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     }
   },
 
+  // ── WINDOW MANAGEMENT (per-window) ──────────────────────────────────────
+  {
+    name: "desktop.moveWindow",
+    description: "Moves a window to absolute screen coordinates (x, y), keeping its current size.",
+    parameters: {
+      type: "object",
+      properties: { windowTitle: { type: "string" }, x: { type: "number" }, y: { type: "number" } },
+      required: ["windowTitle", "x", "y"],
+    },
+  },
+  {
+    name: "desktop.resizeWindow",
+    description: "Resizes a window to the given width/height in pixels, keeping its current top-left position.",
+    parameters: {
+      type: "object",
+      properties: { windowTitle: { type: "string" }, width: { type: "number" }, height: { type: "number" } },
+      required: ["windowTitle", "width", "height"],
+    },
+  },
+  {
+    name: "desktop.setWindowState",
+    description: "Minimizes, maximizes, or restores ONE specific window by title (system.minimizeAllWindows/restoreAllWindows act on every window instead).",
+    parameters: {
+      type: "object",
+      properties: { windowTitle: { type: "string" }, state: { type: "string", enum: ["minimize", "maximize", "restore"] } },
+      required: ["windowTitle", "state"],
+    },
+  },
+  {
+    name: "desktop.closeWindow",
+    description: "Gracefully closes one specific window (like clicking its X button — the app may prompt to save). For force-killing an unresponsive app use apps.close or processes.kill.",
+    parameters: { type: "object", properties: { windowTitle: { type: "string" } }, required: ["windowTitle"] },
+  },
+  {
+    name: "desktop.snapWindow",
+    description: "Snaps a window into a screen region on its current monitor (like Win+Arrow / Snap Layouts).",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string" },
+        position: { type: "string", enum: ["left", "right", "maximize", "top-left", "top-right", "bottom-left", "bottom-right"] },
+      },
+      required: ["windowTitle", "position"],
+    },
+  },
+  {
+    name: "desktop.moveWindowToMonitor",
+    description: "Moves a window onto a specific monitor by index (see desktop.listMonitors), fitting it inside that monitor's usable work area.",
+    parameters: {
+      type: "object",
+      properties: { windowTitle: { type: "string" }, monitorIndex: { type: "number" } },
+      required: ["windowTitle", "monitorIndex"],
+    },
+  },
+  {
+    name: "desktop.listMonitors",
+    description: "Lists all connected monitors with index, work area, and which one is primary.",
+    parameters: { type: "object", properties: {} },
+  },
+
   // ── VOLUME ──────────────────────────────────────────────────────────────
   { name: "system.setVolume", description: "Sets the master system volume to an exact percentage (0-100).", parameters: { type: "object", properties: { level: { type: "number", description: "Volume level 0-100" } }, required: ["level"] } },
   { name: "system.adjustVolume", description: "Adjusts volume up/down or toggles mute. Steps (default 5) sets how many key-taps.", parameters: { type: "object", properties: { action: { type: "string", enum: ["up", "down", "mute"] }, steps: { type: "number" } }, required: ["action"] } },
@@ -576,11 +642,28 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   { name: "clipboard.write", description: "Overwrites the system clipboard with text.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
   { name: "clipboard.clear", description: "Clears the system clipboard.", parameters: { type: "object", properties: {} } },
 
+  // ── AUDIO DEVICES ────────────────────────────────────────────────────────
+  { name: "audio.listDevices", description: "Lists available audio playback/recording devices.", parameters: { type: "object", properties: {} } },
+  {
+    name: "audio.setDefaultDevice",
+    description: "Sets the default audio playback device by (partial, case-insensitive) name. Requires the third-party AudioDeviceCmdlets PowerShell module.",
+    parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+  },
+
   // ── WI-FI ───────────────────────────────────────────────────────────────
   { name: "wifi.status", description: "Gets current Wi-Fi connection status and SSID.", parameters: { type: "object", properties: {} } },
   { name: "wifi.listNetworks", description: "Lists nearby Wi-Fi networks with signal strength.", parameters: { type: "object", properties: {} } },
   { name: "wifi.enable", description: "Enables Wi-Fi adapter.", parameters: { type: "object", properties: {} } },
   { name: "wifi.disable", description: "Disables Wi-Fi adapter.", destructive: true, parameters: { type: "object", properties: {} } },
+  {
+    name: "wifi.connect",
+    description: "Connects to a Wi-Fi network by SSID. Pass a password to create the profile if it doesn't already exist.",
+    parameters: {
+      type: "object",
+      properties: { ssid: { type: "string" }, password: { type: "string" } },
+      required: ["ssid"],
+    },
+  },
 
   // ── NETWORK ──────────────────────────────────────────────────────────────
   { name: "network.info", description: "Returns detailed network adapter info: IP, MAC, DNS, gateway.", parameters: { type: "object", properties: {} } },
@@ -592,6 +675,36 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   // ── RECYCLE BIN ──────────────────────────────────────────────────────────
   { name: "recycleBin.size", description: "Reports items count and total size (MB) in the Recycle Bin.", parameters: { type: "object", properties: {} } },
   { name: "recycleBin.empty", description: "Permanently empties the Recycle Bin. Requires explicit user confirmation.", destructive: true, parameters: { type: "object", properties: { confirm: { type: "boolean" } }, required: ["confirm"] } },
+
+  // ── SERVICES ─────────────────────────────────────────────────────────────
+  { name: "services.status", description: "Gets the status of a single Windows service by its short Name.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "services.start", description: "Starts a stopped Windows service by its short Name.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  {
+    name: "services.stop",
+    description: "Stops a running Windows service by its short Name. Requires the user to have explicitly agreed first.",
+    destructive: true,
+    parameters: { type: "object", properties: { name: { type: "string" }, confirm: { type: "boolean" } }, required: ["name", "confirm"] },
+  },
+  {
+    name: "services.restart",
+    description: "Restarts a Windows service by its short Name. Requires the user to have explicitly agreed first.",
+    destructive: true,
+    parameters: { type: "object", properties: { name: { type: "string" }, confirm: { type: "boolean" } }, required: ["name", "confirm"] },
+  },
+
+  // ── POWER PLANS ──────────────────────────────────────────────────────────
+  { name: "system.listPowerPlans", description: "Lists available Windows power plans and which is active.", parameters: { type: "object", properties: {} } },
+  { name: "system.setPowerPlan", description: "Switches the active Windows power plan by GUID (from system.listPowerPlans).", parameters: { type: "object", properties: { guid: { type: "string" } }, required: ["guid"] } },
+
+  // ── STARTUP APPS ─────────────────────────────────────────────────────────
+  { name: "system.listStartupApps", description: "Lists programs configured to launch at sign-in (Registry Run keys).", parameters: { type: "object", properties: {} } },
+  { name: "system.addStartupApp", description: "Adds a program to the current user's startup.", parameters: { type: "object", properties: { name: { type: "string" }, command: { type: "string" } }, required: ["name", "command"] } },
+  {
+    name: "system.removeStartupApp",
+    description: "Removes a program from the current user's startup. Requires the user to have explicitly agreed first.",
+    destructive: true,
+    parameters: { type: "object", properties: { name: { type: "string" }, confirm: { type: "boolean" } }, required: ["name", "confirm"] },
+  },
 
   // ── SYSTEM INFO ──────────────────────────────────────────────────────────
   { name: "system.hostname", description: "Returns the PC's hostname, Windows edition, build, and current logged-in user.", parameters: { type: "object", properties: {} } },
@@ -613,6 +726,31 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   { name: "system.minimizeAllWindows", description: "Minimizes all windows to show the desktop (like Win+D).", parameters: { type: "object", properties: {} } },
   { name: "system.restoreAllWindows", description: "Restores all previously minimized windows.", parameters: { type: "object", properties: {} } },
   { name: "system.switchWindow", description: "Switches to the next open application window (like Alt+Tab).", parameters: { type: "object", properties: {} } },
+
+  // ── RAW COMMAND EXECUTION ────────────────────────────────────────────────
+  {
+    name: "system.runCommand",
+    description:
+      "Runs a single arbitrary PowerShell command line and returns stdout/stderr. Last-resort escape hatch — ALWAYS prefer a specific existing tool first. Every call is permanently audit-logged. Requires the user to have explicitly agreed to the exact command first.",
+    destructive: true,
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "The exact PowerShell command line to run." },
+        confirm: { type: "boolean", description: "Must be true, and only true once the user has explicitly agreed to this exact command." },
+        timeoutMs: { type: "number", description: "Optional timeout in milliseconds, default 20000, max 60000." },
+      },
+      required: ["command", "confirm"],
+    },
+  },
+  {
+    name: "system.readRunCommandAuditLog",
+    description: "Reads the last N entries of the system.runCommand audit log — what commands were run, when, and their result.",
+    parameters: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Max entries to return, default 50, max 500." } },
+    },
+  },
 ];
 
 
