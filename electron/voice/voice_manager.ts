@@ -1,8 +1,65 @@
 import { isTtsSpeaking, stopTtsSpeaking } from "../tools/tts";
-import { notifyFinalTranscript, notifyInterruptSpeaking, notifyPartialTranscript, notifyVoiceWarning } from "./notify";
+import {
+  notifyFinalTranscript,
+  notifyInterruptSpeaking,
+  notifyMicPowerState,
+  notifyPartialTranscript,
+  notifyVoiceWarning,
+  notifyWakeWordDetected,
+  notifyWakeWordState,
+} from "./notify";
 import { BrowserSpeechService } from "./browser_speech";
 import { SpeechRouter } from "./speech_router";
 import type { BrowserTranscript, VoiceState } from "./types";
+
+// Default wake phrases JARVIC listens for once wake-word mode is enabled.
+// Override with a comma-separated list via JARVIC_WAKE_WORD, e.g. "hey jarvic,ok jarvic".
+const DEFAULT_WAKE_WORDS = ["hey jarvic", "hey jarvis", "ok jarvic", "okay jarvic"];
+
+function loadWakeWords(): string[] {
+  const raw = process.env.JARVIC_WAKE_WORD;
+  if (raw && raw.trim()) {
+    return raw
+      .split(",")
+      .map((phrase) => phrase.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return DEFAULT_WAKE_WORDS;
+}
+
+function normalizeForWakeWord(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Simple text-based wake-word match: looks for any configured wake phrase
+ * inside the transcript and returns whatever comes after it as the command.
+ * Not a true offline wake-word engine (no audio-level detection) — this
+ * gates the already-transcribed text from the online Web Speech pipeline.
+ */
+function matchWakeWord(text: string, wakeWords: string[]): { remainder: string } | null {
+  const normalizedText = normalizeForWakeWord(text);
+  if (!normalizedText) return null;
+
+  let best: { remainder: string; wakeWordLength: number } | null = null;
+  for (const phrase of wakeWords) {
+    const normalizedPhrase = normalizeForWakeWord(phrase);
+    if (!normalizedPhrase) continue;
+    const idx = normalizedText.indexOf(normalizedPhrase);
+    if (idx === -1) continue;
+    if (!best || normalizedPhrase.length > best.wakeWordLength) {
+      best = {
+        remainder: normalizedText.slice(idx + normalizedPhrase.length).trim(),
+        wakeWordLength: normalizedPhrase.length,
+      };
+    }
+  }
+  return best ? { remainder: best.remainder } : null;
+}
 
 const NOISE_ONLY = new Set([
   "uh",
@@ -40,6 +97,11 @@ export class VoiceManager {
   private ttsPoll: NodeJS.Timeout | null = null;
   private manualListening = false;
   private lastWarning = "";
+  // Hard power state of the mic/browser-speech backend — distinct from
+  // manualListening, which only pauses/resumes an active recognition session.
+  private micPowered = false;
+  private wakeWordEnabled = false;
+  private readonly wakeWords = loadWakeWords();
 
   constructor() {
     this.wire();
@@ -61,6 +123,7 @@ export class VoiceManager {
     if (this.started) return;
     this.started = true;
     await this.browserSpeech.start();
+    this.micPowered = true;
     this.setState("IDLE");
   }
 
@@ -71,11 +134,85 @@ export class VoiceManager {
     this.clearTtsPoll();
     this.router.stopListening();
     await this.browserSpeech.stop();
+    this.micPowered = false;
     notifyPartialTranscript("");
     this.setState("IDLE");
   }
 
+  isMicPowered(): boolean {
+    return this.micPowered;
+  }
+
+  isWakeWordEnabled(): boolean {
+    return this.wakeWordEnabled;
+  }
+
+  /** Fully powers down the mic: stops recognition AND kills the hidden browser process holding the OS mic permission. */
+  async powerOffMic(): Promise<void> {
+    if (!this.micPowered) return;
+    this.manualListening = false;
+    this.clearTtsPoll();
+    this.router.stopListening();
+    await this.browserSpeech.stop();
+    this.micPowered = false;
+    notifyPartialTranscript("");
+    this.setState("IDLE");
+    notifyMicPowerState(false);
+  }
+
+  /** Relaunches the hidden browser/mic session after a full power-off. */
+  async powerOnMic(): Promise<void> {
+    if (this.micPowered) return;
+    await this.browserSpeech.start();
+    this.micPowered = true;
+    this.setState("IDLE");
+    notifyMicPowerState(true);
+    // If wake-word mode was left enabled, resume continuous listening now that the mic is back.
+    if (this.wakeWordEnabled) {
+      this.manualListening = true;
+      this.setState("LISTENING");
+      this.router.startListening("manual");
+    }
+  }
+
+  /**
+   * Enables/disables wake-word gating. When enabled, the mic listens
+   * continuously (the browser recognition loop already auto-restarts itself)
+   * but transcripts are only forwarded to the AI planner if they contain a
+   * configured wake phrase (default "hey jarvic"); everything else is
+   * discarded before it reaches Gemini.
+   */
+  setWakeWordEnabled(enabled: boolean): void {
+    if (this.wakeWordEnabled === enabled) return;
+    this.wakeWordEnabled = enabled;
+    notifyWakeWordState(enabled);
+
+    if (!enabled) {
+      if (!this.manualListening) return;
+      this.manualListening = false;
+      this.router.stopListening();
+      notifyPartialTranscript("");
+      if (this.state === "LISTENING" || this.state === "INTERRUPTED") this.setState("IDLE");
+      return;
+    }
+
+    if (!this.micPowered) {
+      this.warn("Turn the microphone on to enable wake-word listening.");
+      return;
+    }
+    this.manualListening = true;
+    this.interruptIfSpeaking();
+    this.setState("LISTENING");
+    notifyInterruptSpeaking();
+    notifyPartialTranscript("");
+    this.router.startListening("manual");
+  }
+
   startListening(): void {
+    if (!this.micPowered) {
+      this.warn("Cannot start listening: the microphone is powered off.");
+      return;
+    }
     this.manualListening = true;
     this.interruptIfSpeaking();
     this.setState("LISTENING");
@@ -140,8 +277,30 @@ export class VoiceManager {
     const text = sanitizeTranscript(result.text);
     notifyPartialTranscript("");
     if (!text) {
+      if (this.wakeWordEnabled && this.manualListening) this.setState("LISTENING");
       return;
     }
+
+    if (this.wakeWordEnabled) {
+      const match = matchWakeWord(text, this.wakeWords);
+      if (!match) {
+        // Not directed at JARVIC — stay listening, don't forward to the AI planner.
+        if (this.manualListening) this.setState("LISTENING");
+        return;
+      }
+      notifyWakeWordDetected();
+      if (!match.remainder) {
+        // Wake word heard with no command attached yet — keep listening for the follow-up.
+        this.setState("LISTENING");
+        return;
+      }
+      this.interruptIfSpeaking();
+      this.setState("PROCESSING");
+      notifyFinalTranscript(match.remainder);
+      this.monitorTts();
+      return;
+    }
+
     this.interruptIfSpeaking();
     this.setState("PROCESSING");
     notifyFinalTranscript(text);

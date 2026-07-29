@@ -216,6 +216,27 @@ registerTool({
 });
 
 registerTool({
+  name: "desktop.waitForWindow",
+  description:
+    "Polls for a window whose title matches (partial/regex) windowTitle to actually appear, returning as soon as it does instead of a blind fixed sleep. Use this after apps.open/apps.searchAndOpen/web.open — especially for apps whose load time varies a lot (WhatsApp Desktop or WhatsApp Web, Slack, Teams, any browser-based app) — before clicking or typing into the new window. Prefer this over system.wait whenever you know (or can guess) the window's title, since system.wait always sleeps the full fixed duration you give it even if the window was ready sooner, and can time out too early if it appears later.",
+  validateArgs: (raw) => {
+    if (typeof raw !== "object" || raw === null || typeof (raw as any).windowTitle !== "string") {
+      throw new Error("Expected { windowTitle: string, timeoutMs?: number }");
+    }
+    const r = raw as any;
+    const timeoutMs =
+      typeof r.timeoutMs === "number" && Number.isFinite(r.timeoutMs) ? Math.min(Math.max(r.timeoutMs, 500), 20000) : 12000;
+    return { windowTitle: r.windowTitle as string, timeoutMs };
+  },
+  handler: async ({ windowTitle, timeoutMs }: { windowTitle: string; timeoutMs: number }) =>
+    runPythonCommand({
+      command: "wait_for_window",
+      window_title: windowTitle,
+      timeout_s: timeoutMs / 1000,
+    }),
+});
+
+registerTool({
   name: "desktop.getActiveWindow",
   description: "Returns the title, class name, and handle of the currently focused/foreground window.",
   validateArgs: () => ({}),

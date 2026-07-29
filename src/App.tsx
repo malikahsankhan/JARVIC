@@ -30,7 +30,10 @@ import {
   AppWindow,
   HardDrive,
   Search,
-  Eye
+  Eye,
+  Power,
+  PowerOff,
+  Radio
 } from "lucide-react";
 
 // Audio sound synthesizers using native Web Audio API
@@ -146,6 +149,8 @@ export default function App() {
   // Audio / Speech customization features
   const [isMuted, setIsMuted] = useState(false);
   const [voiceRecognitionActive, setVoiceRecognitionActive] = useState(false);
+  const [micPowered, setMicPowered] = useState(true);
+  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [livePartial, setLivePartial] = useState<string | null>(null);
 
@@ -439,6 +444,31 @@ export default function App() {
       } else {
         startVoiceCapture().catch((err) => console.error("Voice start error", err));
       }
+    }
+  };
+
+  // Fully power the microphone on/off (kills/relaunches the hidden browser
+  // speech process, releasing the OS mic permission entirely) — distinct
+  // from toggleVoiceCapture, which only pauses/resumes an active session.
+  const toggleMicPower = () => {
+    playSound("click");
+    if ((window as any).jarvic?.invokeTool) {
+      (window as any).jarvic.invokeTool("system.audio.listen", { mode: "power_toggle" }).catch((err: any) => {
+        console.error("Mic power toggle error", err);
+        addLog(">> [ERROR] Could not toggle microphone power: " + (err?.message ?? err));
+      });
+    }
+  };
+
+  // Arm/disarm wake-word gating ("hey jarvic"). When armed, the mic listens
+  // continuously but only forwards speech heard after the wake phrase.
+  const toggleWakeWord = () => {
+    playSound("click");
+    if ((window as any).jarvic?.invokeTool) {
+      (window as any).jarvic.invokeTool("system.audio.listen", { mode: "wake_word_toggle" }).catch((err: any) => {
+        console.error("Wake-word toggle error", err);
+        addLog(">> [ERROR] Could not toggle wake-word mode: " + (err?.message ?? err));
+      });
     }
   };
 
@@ -895,6 +925,24 @@ export default function App() {
     toggleVoiceCaptureRef.current = toggleVoiceCapture;
   });
 
+  // Sync mic power / wake-word state once at startup, since the voice
+  // system may already be running before this component mounts.
+  useEffect(() => {
+    if (typeof window === "undefined" || !(window as any).jarvic?.invokeTool) return;
+    (window as any).jarvic
+      .invokeTool("system.audio.listen", { mode: "status" })
+      .then((result: any) => {
+        if (result?.success && result.data) {
+          if (typeof result.data.micPowered === "boolean") setMicPowered(result.data.micPowered);
+          if (typeof result.data.wakeWordEnabled === "boolean") {
+            setWakeWordEnabled(result.data.wakeWordEnabled);
+            if (result.data.wakeWordEnabled) setVoiceRecognitionActive(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Listen for native Electron voice events.
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).jarvic?.onAudioEvent) {
@@ -928,6 +976,21 @@ export default function App() {
           console.warn("[JARVIC] Voice warning:", message);
           addLog(`>> [WARNING] ${message}`);
           playSound("warning");
+        } else if (data.event === "mic-power") {
+          const powered = Boolean(data.data);
+          setMicPowered(powered);
+          if (!powered) {
+            setVoiceRecognitionActive(false);
+            setJarvicState("idle");
+          }
+          addLog(powered ? ">> [JARVIC] Microphone powered on." : ">> [JARVIC] Microphone powered off.");
+        } else if (data.event === "wake-word-state") {
+          const enabled = Boolean(data.data);
+          setWakeWordEnabled(enabled);
+          setVoiceRecognitionActive(enabled);
+          addLog(enabled ? ">> [JARVIC] Wake-word listening armed." : ">> [JARVIC] Wake-word listening disarmed.");
+        } else if (data.event === "wake-word-detected") {
+          playSound("beep");
         }
       });
       return () => {
@@ -1331,17 +1394,54 @@ export default function App() {
                 </motion.button>
 
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={toggleVoiceCapture}
-                  className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 cursor-pointer transition-all ${
-                    voiceRecognitionActive
-                      ? 'border-amber-500 bg-amber-950/30 text-amber-400 animate-pulse'
-                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300'
+                  whileHover={micPowered ? { scale: 1.05 } : undefined}
+                  whileTap={micPowered ? { scale: 0.95 } : undefined}
+                  onClick={micPowered ? toggleVoiceCapture : undefined}
+                  disabled={!micPowered}
+                  className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 transition-all ${
+                    !micPowered
+                      ? 'border-slate-900/60 text-slate-600 cursor-not-allowed opacity-50'
+                      : voiceRecognitionActive
+                      ? 'border-amber-500 bg-amber-950/30 text-amber-400 animate-pulse cursor-pointer'
+                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300 cursor-pointer'
                   }`}
+                  title={!micPowered ? "Microphone is powered off" : undefined}
                 >
                   {voiceRecognitionActive ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                   <span>{voiceRecognitionActive ? "LISTENING" : "CAPTURE VOICE"}</span>
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleWakeWord}
+                  disabled={!micPowered}
+                  className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 transition-all ${
+                    !micPowered
+                      ? 'border-slate-900/60 text-slate-600 cursor-not-allowed opacity-50'
+                      : wakeWordEnabled
+                      ? 'border-emerald-500 bg-emerald-950/30 text-emerald-400 animate-pulse cursor-pointer'
+                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300 cursor-pointer'
+                  }`}
+                  title="Toggle 'hey jarvic' wake-word listening"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>{wakeWordEnabled ? "WAKE WORD ARMED" : "WAKE WORD"}</span>
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={toggleMicPower}
+                  className={`px-3 py-1.5 border rounded text-[10px] font-mono tracking-widest flex items-center gap-2 cursor-pointer transition-all ${
+                    !micPowered
+                      ? 'border-red-900/80 bg-red-950/20 text-red-400'
+                      : 'border-slate-800/60 hover:border-slate-700/60 text-slate-300'
+                  }`}
+                  title="Fully power the microphone on/off"
+                >
+                  {micPowered ? <Power className="w-3.5 h-3.5" /> : <PowerOff className="w-3.5 h-3.5" />}
+                  <span>{micPowered ? "MIC POWER ON" : "MIC POWER OFF"}</span>
                 </motion.button>
 
                 <motion.button

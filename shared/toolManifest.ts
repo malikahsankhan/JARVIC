@@ -188,7 +188,7 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
   {
     name: "system.wait",
     description:
-      "Pauses briefly (max 5000ms) before your next tool call. Use after apps.open, right before typing/clicking into the newly opened window.",
+      "Pauses briefly (max 5000ms) before your next tool call — a blind fixed sleep that always waits its full duration even if the target was ready sooner, and can still be too short. Use ONLY when you don't know the target window's title (so desktop.waitForWindow isn't possible), e.g. after apps.open for something with no distinct window (protocol/URI launches) or a quick fixed pause between unrelated steps. Whenever you know or can guess the window's title (including messaging apps like WhatsApp), call desktop.waitForWindow instead — it polls and returns as soon as the window actually appears.",
     parameters: {
       type: "object",
       properties: { ms: { type: "number", description: "Milliseconds to wait, capped at 5000." } },
@@ -399,6 +399,19 @@ export const TOOL_MANIFEST: ToolManifestEntry[] = [
     name: "desktop.listWindows",
     description: "Lists all active desktop windows with their titles, class names, and handles. Uses UIA (pywinauto) with automatic uiautomation/Win32 fallback.",
     parameters: { type: "object", properties: {} },
+  },
+  {
+    name: "desktop.waitForWindow",
+    description:
+      "Polls for a window whose title matches (partial/regex) windowTitle to actually appear, returning as soon as it does — instead of a blind fixed sleep. Use this after apps.open/apps.searchAndOpen/web.open before clicking or typing into the new window, especially for apps with variable load time (e.g. WhatsApp Desktop, WhatsApp Web, Slack, Teams, any browser-based app). Prefer this over system.wait whenever you know the window's title: system.wait always sleeps its full duration even if the window was ready sooner, and can still time out too early if the window takes longer than the ms you guessed.",
+    parameters: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string", description: "Partial name or regex matching the window title to wait for, e.g. \"WhatsApp\"." },
+        timeoutMs: { type: "number", description: "Max time to wait in milliseconds, capped at 20000. Defaults to 12000." },
+      },
+      required: ["windowTitle"],
+    },
   },
   {
     name: "desktop.getActiveWindow",

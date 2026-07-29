@@ -330,6 +330,50 @@ class AutomationEngine:
 
         raise AutomationError(f"Window not found: '{title_regex}'")
 
+    def wait_for_window(self, title_regex: str, timeout_s: float = 12.0, poll_interval_s: float = 0.4):
+        """Polls for a window matching title_regex to actually appear, returning
+        as soon as it's found instead of sleeping a fixed, guessed duration.
+
+        This exists because apps.open/apps.searchAndOpen/web.open only know a
+        process (or browser tab) was launched, not that its window has actually
+        rendered — and that gap varies wildly (a few hundred ms for Notepad,
+        several seconds for something like WhatsApp Desktop cold-starting or
+        WhatsApp Web finishing its session sync). A fixed sleep is either too
+        short (the caller acts before the UI exists) or wastes time (it's
+        always too long for the common case). Polling adapts to whichever
+        happens for real.
+        """
+        self._log(f"Waiting up to {timeout_s}s for window matching: '{title_regex}'")
+        start = time.time()
+        deadline = start + timeout_s
+        last_err = None
+
+        while time.time() < deadline:
+            try:
+                all_windows = self.list_windows()
+            except Exception as e:
+                all_windows = []
+                last_err = e
+
+            best = self._best_window_match(title_regex, all_windows)
+            if best is not None:
+                waited = round(time.time() - start, 2)
+                self._log(f"wait_for_window: matched '{best.get('title')}' after {waited}s")
+                return {
+                    "found": True,
+                    "title": best.get("title"),
+                    "className": best.get("class_name"),
+                    "handle": best.get("handle"),
+                    "waitedSeconds": waited,
+                }
+            time.sleep(poll_interval_s)
+
+        waited = round(time.time() - start, 2)
+        detail = f" (last enumeration error: {last_err})" if last_err else ""
+        raise AutomationError(
+            f"Timed out after {waited}s waiting for a window matching '{title_regex}'.{detail}"
+        )
+
     def connect_to_window(self, title_regex: str):
         return self._find_window(title_regex)
 

@@ -52,6 +52,19 @@ def dispatch(engine: AutomationEngine, data: dict) -> dict:
             windows = engine.list_windows()
             res = _result("success", f"Found {len(windows)} window(s)", data={"windows": windows}, logs=engine.logs)
 
+        elif cmd == "wait_for_window":
+            result = engine.wait_for_window(
+                data.get("window_title"),
+                timeout_s=data.get("timeout_s", 12.0),
+                poll_interval_s=data.get("poll_interval_s", 0.4),
+            )
+            res = _result(
+                "success",
+                f"Window appeared: '{result.get('title')}' after {result.get('waitedSeconds')}s",
+                data=result,
+                logs=engine.logs,
+            )
+
         elif cmd == "get_active_window":
             win = engine.get_active_window()
             res = _result("success", "Retrieved active window", data={"window": win}, logs=engine.logs)

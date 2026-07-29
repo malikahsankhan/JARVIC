@@ -43,3 +43,18 @@ export function notifyVoiceWarning(message: string): void {
   notifyRenderer("voice-warning", message);
 }
 
+/** Tell the renderer whether the microphone is fully powered on or off (hardware/browser-process level, not just paused). */
+export function notifyMicPowerState(powered: boolean): void {
+  notifyRenderer("mic-power", powered);
+}
+
+/** Tell the renderer whether wake-word gating is enabled. */
+export function notifyWakeWordState(enabled: boolean): void {
+  notifyRenderer("wake-word-state", enabled);
+}
+
+/** Tell the renderer a wake word was just detected (for a UI chime/flash). */
+export function notifyWakeWordDetected(): void {
+  notifyRenderer("wake-word-detected");
+}
+
