@@ -1,4 +1,4 @@
-import { desktopCapturer, screen } from "electron";
+import { desktopCapturer, nativeImage, screen } from "electron";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
@@ -27,6 +27,49 @@ async function captureScreenPng(): Promise<{ buffer: Buffer; width: number; heig
     height: primarySource.thumbnail.getSize().height,
   };
 }
+
+/**
+ * Captures the primary display, downsized and JPEG-compressed, for sending
+ * to Gemini as an actual image the model can see — distinct from
+ * captureScreenPng() above, which keeps full-resolution PNG bytes for
+ * saving to disk or OCR. Uses Electron's built-in nativeImage resize/encode
+ * (no extra image-processing dependency needed).
+ *
+ * Also returns the REAL, unscaled screen size (matching what
+ * input.mouseClick/input.mouseMove expect) alongside the returned image's
+ * own (possibly smaller) size, so the caller can scale any coordinate it
+ * reads off the image back to real screen coordinates.
+ */
+async function captureScreenForVision(
+  maxDimension = 1400,
+  jpegQuality = 75
+): Promise<{ base64: string; mimeType: string; imageWidth: number; imageHeight: number; screenWidth: number; screenHeight: number }> {
+  const display = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = display.size;
+
+  const { buffer, width: fullWidth, height: fullHeight } = await captureScreenPng();
+  let image = nativeImage.createFromBuffer(buffer);
+
+  const longSide = Math.max(fullWidth, fullHeight);
+  if (longSide > maxDimension) {
+    const scale = maxDimension / longSide;
+    image = image.resize({ width: Math.round(fullWidth * scale), height: Math.round(fullHeight * scale) });
+  }
+
+  const { width: imageWidth, height: imageHeight } = image.getSize();
+  const jpegBuffer = image.toJPEG(jpegQuality);
+
+  return {
+    base64: jpegBuffer.toString("base64"),
+    mimeType: "image/jpeg",
+    imageWidth,
+    imageHeight,
+    screenWidth,
+    screenHeight,
+  };
+}
+
+export { captureScreenPng, captureScreenForVision };
 
 registerTool({
   name: "system.takeScreenshot",

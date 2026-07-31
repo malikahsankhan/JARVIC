@@ -8,6 +8,7 @@ import "./tts";
 import "./web";
 import "./audio";
 import "./screenshot";
+import "./vision";
 import "./input";
 import "./desktop_automation";
 import "./os_control";

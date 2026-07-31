@@ -241,9 +241,31 @@ app.post("/api/chat", async (req, res) => {
         return { role: "model", parts: parts.length ? parts : [{ text: "" }] };
       }
       if (m.role === "tool") {
-        const parts = (m.toolResults ?? []).map((tr: any) => ({
-          functionResponse: { name: tr.name, response: tr.result ?? {} },
-        }));
+        const parts: any[] = [];
+        for (const tr of m.toolResults ?? []) {
+          // window.jarvic.invokeTool always returns the IPC wrapper
+          // { success, data, executionTimeMs } — the tool handler's own
+          // return value (where __visionImage would live, from vision.see)
+          // is nested one level down under `.data`.
+          const rawResult: any = tr.result ?? {};
+          const data = rawResult && typeof rawResult === "object" ? rawResult.data : undefined;
+          const visionImage = data && typeof data === "object" ? data.__visionImage : undefined;
+
+          let responseForModel = rawResult;
+          if (visionImage && visionImage.data) {
+            // Strip the (large) base64 payload out of the JSON function
+            // response — it gets attached below as a real inline image
+            // part instead, so the model can actually see it as pixels
+            // rather than choke on it as an enormous text blob.
+            const { __visionImage, ...restData } = data;
+            responseForModel = { ...rawResult, data: restData };
+          }
+
+          parts.push({ functionResponse: { name: tr.name, response: responseForModel ?? {} } });
+          if (visionImage && visionImage.data) {
+            parts.push({ inlineData: { mimeType: visionImage.mimeType || "image/png", data: visionImage.data } });
+          }
+        }
         return { role: "user", parts: parts.length ? parts : [{ text: "" }] };
       }
       // 'user' and 'system' both come through as a plain user turn
@@ -307,7 +329,12 @@ DESKTOP APP UI AUTOMATION (pywinauto):
 26. CRITICAL: controlType alone is NEVER enough to click something. Windows like Slack, Teams, and VS Code have dozens of controls sharing the same controlType (e.g. many "TreeItem"/"ListItem" entries in a sidebar). ALWAYS pass controlText (or autoId) set to the exact visible name of the item you read from the most recent desktop.dumpControls output — never call clickControl/selectItem with only controlType/className and no controlText/autoId, it will fail as ambiguous.
 27. For selecting an entry out of a list, tree, or combo box — e.g. a Slack channel/DM, a search/quick-switcher result, a dropdown option — prefer desktop.selectItem over desktop.clickControl. Pass windowTitle, the container's controlType/className if known, and itemName set to the exact text of the entry (read it from dumpControls first, e.g. after typing into a filter/search box, dump controls again and copy the matching item's exact name into itemName).
 28. If a click/select call fails with an error, do NOT just repeat desktop.listWindows or start the whole flow over. Read the error: if it says a control is ambiguous or lists multiple candidates, immediately retry the SAME click/select call with a more specific controlText/itemName drawn from the last dumpControls output — don't burn rounds re-discovering windows you already found.
-29. To SEND a message in a chat app (Slack, Teams, Discord, etc.) after typing it into the compose box with desktop.typeControl: press Enter, do NOT hunt for a "Send" button. Call desktop.sendKeysToControl with key="{ENTER}" and the SAME windowTitle/controlText/autoId you just typed into, so focus is still in the compose box. Icon-only send buttons frequently have no reliable accessible name to click, and Enter is the standard send shortcut in every major chat app by default. Only try clicking an actual send button as a fallback if the user tells you Enter didn't work (e.g. their app is configured to require Cmd/Ctrl+Enter to send and Enter alone just inserts a newline).`;
+29. To SEND a message in a chat app (Slack, Teams, Discord, etc.) after typing it into the compose box with desktop.typeControl: press Enter, do NOT hunt for a "Send" button. Call desktop.sendKeysToControl with key="{ENTER}" and the SAME windowTitle/controlText/autoId you just typed into, so focus is still in the compose box. Icon-only send buttons frequently have no reliable accessible name to click, and Enter is the standard send shortcut in every major chat app by default. Only try clicking an actual send button as a fallback if the user tells you Enter didn't work (e.g. their app is configured to require Cmd/Ctrl+Enter to send and Enter alone just inserts a newline).
+
+VISION (actually seeing the screen):
+30. desktop.dumpControls only works on apps that expose a proper accessibility (UIA) tree. Some content has none: games, canvas/custom-rendered UI (many Electron apps with custom widgets), or icon-only controls with no accessible name. If desktop.dumpControls comes back empty, or every click/select attempt against it fails, call vision.see instead — it captures the actual screen and you genuinely see it as an image, not a text description. Also use vision.see whenever the user's request needs real visual judgment a text-only tool can't give you: confirming a checkbox/toggle's visual state, identifying a color, reading a QR code or diagram, or describing what's currently on screen.
+31. vision.see's result gives you imageWidth/imageHeight (the image you're looking at) and screenWidth/screenHeight (the real screen, usually larger than the image). If you locate something at pixel (ix, iy) in the image, you MUST convert it before clicking: x = ix * (screenWidth / imageWidth), y = iy * (screenHeight / imageHeight), then call input.mouseClick with the converted x/y — passing the raw image-pixel coordinates straight to input.mouseClick will click the wrong spot.
+32. Don't reach for vision.see as your first move on every UI task — it's slower and less precise than a name-based desktop.clickControl once you actually have a control name. Try the accessibility-tree path (25-27) first; fall back to vision.see only when that path is unavailable or has already failed.`;
 
 
     const response = await ai.models.generateContent({
