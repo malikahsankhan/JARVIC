@@ -4,7 +4,7 @@ import os from "os";
 import fs from "fs";
 import { execFile } from "child_process";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 import { TOOL_MANIFEST, JsonSchemaProperty } from "./shared/toolManifest";
 
@@ -218,6 +218,7 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
+  let streamStarted = false;
   try {
     const formattedContents = messages.map((m: any) => {
       if (m.role === "assistant") {
@@ -337,55 +338,90 @@ VISION (actually seeing the screen):
 32. Don't reach for vision.see as your first move on every UI task — it's slower and less precise than a name-based desktop.clickControl once you actually have a control name. Try the accessibility-tree path (25-27) first; fall back to vision.see only when that path is unavailable or has already failed.`;
 
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: formattedContents,
-      config: {
-        systemInstruction,
-        temperature: 0.7,
-        tools: [{ functionDeclarations: toGeminiFunctionDeclarations() }],
-      },
-    });
+    {
+      const streamResp = await ai.models.generateContentStream({
+        model: "gemini-3.1-flash-lite",
+        contents: formattedContents,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+          tools: [{ functionDeclarations: toGeminiFunctionDeclarations() }],
+          // "low" keeps just enough reasoning for reliable tool selection/args
+          // (coordinate math for vision, matching the right control, etc.)
+          // while cutting the latency of the model's default thinking pass —
+          // most JARVIC commands are simple enough not to need deep deliberation.
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      });
 
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const toolCalls: any[] = [];
-    for (const part of parts) {
-      if (part.functionCall) {
-        toolCalls.push({
-          id: part.functionCall.id ?? `${Date.now()}-${toolCalls.length}`,
-          name: part.functionCall.name,
-          args: part.functionCall.args ?? {},
-          // Preserve the entire part object (with thoughtSignature) so
-          // formattedContents can replay it correctly on subsequent rounds.
-          _raw: part,
+      // Stream newline-delimited JSON chunks to the client as they arrive,
+      // instead of blocking until the whole response is ready. The client
+      // renders text deltas live; the final line carries the full content
+      // plus any accumulated tool calls so the existing tool-call loop in
+      // App.tsx works unchanged.
+      res.setHeader("Content-Type", "application/x-ndjson");
+      res.setHeader("Cache-Control", "no-cache");
+      streamStarted = true;
+
+      let fullText = "";
+      const toolCalls: any[] = [];
+
+      for await (const chunk of streamResp) {
+        const chunkParts = chunk.candidates?.[0]?.content?.parts ?? [];
+        for (const part of chunkParts) {
+          if (typeof part.text === "string" && part.text) {
+            fullText += part.text;
+            res.write(JSON.stringify({ type: "text", delta: part.text }) + "\n");
+          }
+          if (part.functionCall) {
+            toolCalls.push({
+              id: part.functionCall.id ?? `${Date.now()}-${toolCalls.length}`,
+              name: part.functionCall.name,
+              args: part.functionCall.args ?? {},
+              // Preserve the entire part object (with thoughtSignature) so
+              // formattedContents can replay it correctly on subsequent rounds.
+              _raw: part,
+            });
+          }
+        }
+      }
+
+      res.write(
+        JSON.stringify({
+          type: "done",
+          role: "assistant",
+          content: fullText,
+          ...(toolCalls.length > 0 ? { toolCalls } : {}),
+        }) + "\n"
+      );
+      res.end();
+    }
+  } catch (error: any) {
+      console.error("Gemini API error:", error);
+
+      // Check if it looks like a transient 503, rate limit, or network overload
+      const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
+      const isOverloaded = errorStr.includes("503") || errorStr.includes("high demand") || errorStr.includes("UNAVAILABLE") || errorStr.includes("429");
+
+      let gracefulMessage = "I apologize, Sir. My neural pathways had a transient desynchronization. Could you repeat that directive?";
+
+      if (isOverloaded) {
+        gracefulMessage = "Sir, my neural computing mainframe is currently experiencing exceptionally high cognitive load demands. Temporary capacity overload detected. I am keeping our active buffers warm, but you may need to re-transmit your directive in a few moments once the sub-relays stabilize.";
+      }
+
+      if (streamStarted || res.headersSent) {
+        try {
+          res.write(JSON.stringify({ type: "done", role: "assistant", content: gracefulMessage }) + "\n");
+        } catch {}
+        try { res.end(); } catch {}
+      } else {
+        res.json({
+          role: "assistant",
+          content: gracefulMessage
         });
       }
     }
-
-    res.json({
-      role: "assistant",
-      content: response.text || "",
-      ...(toolCalls.length > 0 ? { toolCalls } : {}),
-    });
-  } catch (error: any) {
-    console.error("Gemini API error:", error);
-    
-    // Check if it looks like a transient 503, rate limit, or network overload
-    const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
-    const isOverloaded = errorStr.includes("503") || errorStr.includes("high demand") || errorStr.includes("UNAVAILABLE") || errorStr.includes("429");
-    
-    let gracefulMessage = "I apologize, Sir. My neural pathways had a transient desynchronization. Could you repeat that directive?";
-    
-    if (isOverloaded) {
-      gracefulMessage = "Sir, my neural computing mainframe is currently experiencing exceptionally high cognitive load demands. Temporary capacity overload detected. I am keeping our active buffers warm, but you may need to re-transmit your directive in a few moments once the sub-relays stabilize.";
-    }
-
-    res.json({
-      role: "assistant",
-      content: gracefulMessage
-    });
-  }
-});
+  });
 
 // AssemblyAI realtime token route kept for compatibility, but this build uses browser speech recognition instead.
 app.get("/api/assemblyai/token", async (req, res) => {

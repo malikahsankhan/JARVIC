@@ -814,19 +814,113 @@ export default function App() {
           throw new Error(errorData.error || "Subroutine communication error");
         }
 
-        const botMessage: { role: "assistant"; content: string; toolCalls?: ToolCall[] } = await response.json();
+        // The server streams newline-delimited JSON: {"type":"text","delta":...}
+        // chunks as the model generates them, then one final
+        // {"type":"done", content, toolCalls} line. We render text live as it
+        // arrives (feels instant) instead of waiting for the whole response,
+        // then finalize once "done" shows up.
+        let streamedContent = "";
+        let finalToolCalls: ToolCall[] | undefined;
+        const assistantTimestamp = new Date().toISOString();
+        let placeholderAdded = false;
+        // TerminalView renders `systemLogs`, not `messages` — messages is only
+        // used for scroll-effect deps and the API history. So the visible
+        // "live typing" effect has to update systemLogs in place too, not
+        // just messages, or the UI never shows anything until the very end.
+        let logLineStarted = false;
+
+        const updateStreamingLog = (fullText: string) => {
+          const line = `>> [JARVIC] ${fullText}`;
+          setSystemLogs((prev) => {
+            if (!logLineStarted) {
+              logLineStarted = true;
+              return [...prev, line];
+            }
+            const next = [...prev];
+            next[next.length - 1] = line;
+            return next;
+          });
+        };
+
+        const reader = response.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          const applyLiveText = () => {
+            setMessages((prev) => {
+              const next = [...prev];
+              if (!placeholderAdded) {
+                placeholderAdded = true;
+                next.push({ role: "assistant", content: streamedContent, timestamp: assistantTimestamp });
+              } else {
+                next[next.length - 1] = { ...next[next.length - 1], content: streamedContent };
+              }
+              return next;
+            });
+            updateStreamingLog(streamedContent);
+          };
+
+          const handleLine = (line: string) => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
+            let parsed: any;
+            try {
+              parsed = JSON.parse(trimmed);
+            } catch {
+              return;
+            }
+            if (parsed.type === "text" && typeof parsed.delta === "string") {
+              streamedContent += parsed.delta;
+              applyLiveText();
+            } else if (parsed.type === "done") {
+              if (typeof parsed.content === "string") streamedContent = parsed.content;
+              finalToolCalls = parsed.toolCalls;
+              // Reconcile in case "done"'s content differs slightly from the
+              // accumulated deltas (e.g. trailing whitespace normalization).
+              if (logLineStarted) updateStreamingLog(streamedContent);
+            }
+          };
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let newlineIdx: number;
+            while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+              handleLine(buffer.slice(0, newlineIdx));
+              buffer = buffer.slice(newlineIdx + 1);
+            }
+          }
+          if (buffer.trim()) handleLine(buffer);
+        } else {
+          // Fallback if the runtime has no readable-stream support (shouldn't
+          // happen in Electron/Chromium) — just read the whole body as JSON.
+          const fallback = await response.json();
+          streamedContent = fallback.content ?? "";
+          finalToolCalls = fallback.toolCalls;
+        }
+
+        const botMessage: { role: "assistant"; content: string; toolCalls?: ToolCall[] } = {
+          role: "assistant",
+          content: streamedContent,
+          toolCalls: finalToolCalls,
+        };
 
         const assistantMsg: Message = {
           role: "assistant",
           content: botMessage.content,
-          timestamp: new Date().toISOString(),
+          timestamp: assistantTimestamp,
           toolCalls: botMessage.toolCalls,
         };
+        // Full replace with the authoritative array — this overwrites
+        // whatever partial/live text setMessages showed during streaming
+        // with the final, complete message (now including toolCalls).
         workingMessages = [...workingMessages, assistantMsg];
         setMessages(workingMessages);
 
         if (botMessage.content) {
-          addLog(`>> [JARVIC] ${botMessage.content}`);
+          if (!logLineStarted) addLog(`>> [JARVIC] ${botMessage.content}`);
           speakVoice(botMessage.content);
         }
 
